@@ -40,21 +40,21 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .auth import verify_api_key
-from .logger import clear_request_id, log, set_request_id
-from .models import ErrorResponse, HealthResponse, VerifyClaimRequest, VerifyClaimResponse
-from .oracles import FapCoreClient, FapCoreUnavailable
-from .reality_anchor import RealityAnchor
-from .settings import SETTINGS
-from .evidence import EvidenceEnvelope, OracleObservation
-from .fusion import EvidenceFusionEngine
-from .solar_oracle import evaluate_solar_correlation
+from auth import verify_api_key
+from logger import clear_request_id, log, set_request_id
+from models import ErrorResponse, HealthResponse, VerifyClaimRequest, VerifyClaimResponse
+from oracles import FapCoreClient, FapCoreUnavailable
+from reality_anchor import RealityAnchor
+from settings import SETTINGS
+from evidence import EvidenceEnvelope, OracleObservation
+from fusion import EvidenceFusionEngine
+from solar_oracle import evaluate_solar_correlation
 
-from .config import config
-from .pricing import PricingCalculator
-from .report_generator import AdjusterReport
-from .audit import store_verification, get_by_evidence_id, get_by_claim_id, get_by_request_id, get_chain_integrity
-from .report_templates import generate_audit_report
+from config import config
+from pricing import PricingCalculator
+from report_generator import AdjusterReport
+from audit import store_verification, get_by_evidence_id, get_by_claim_id, get_by_request_id, get_chain_integrity
+from report_templates import generate_audit_report
 
 
 @asynccontextmanager
