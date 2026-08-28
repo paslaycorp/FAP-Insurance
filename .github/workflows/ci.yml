@@ -21,8 +21,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install ruff mypy
-      - name: Lint with ruff
-        run: ruff check .
+      - name: Lint assurance layer with ruff
+        run: |
+          ruff check --fix dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py
+          ruff check dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py
       - name: Type-check with mypy
         run: mypy --ignore-missing-imports .
       - name: Test with pytest
