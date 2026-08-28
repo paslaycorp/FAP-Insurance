@@ -1,22 +1,16 @@
-"""FAP-Insurance request/response models.
-
-The response fields mirror the live /verify implementation. DPIE fields are
-optional so existing clients remain valid while downstream assurance context
-can be supplied explicitly.
-"""
+"""FAP-Insurance request/response models with explicit DPIE context."""
 from __future__ import annotations
-
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
-
 from pydantic import BaseModel, Field, field_validator, model_validator
+from dpie_context import RequestAssuranceContext, set_context
 
 VerdictStatus = Literal["STRICT", "PROBABLE", "SUSPICIOUS", "QUARANTINE"]
 
 
 class VerifyClaimRequest(BaseModel):
-    claim_id: str = Field(..., description="Unique claim identifier assigned by the insurer.")
+    claim_id: str = Field(...)
     media_url: Optional[str] = None
     media_hash: Optional[str] = None
     lat: float = Field(..., ge=-90.0, le=90.0)
@@ -30,8 +24,6 @@ class VerifyClaimRequest(BaseModel):
     policy_number: Optional[str] = None
     adjuster_notes: Optional[str] = Field(default=None, max_length=4000)
 
-    # DPIE downstream context. Defaults preserve the existing /verify behavior:
-    # no material downstream boundary is declared unless the caller changes it.
     downstream_purpose: Optional[str] = None
     downstream_scope: Optional[str] = None
     downstream_jurisdiction: Optional[str] = None
@@ -60,33 +52,53 @@ class VerifyClaimRequest(BaseModel):
             raise ValueError("media_hash must be exactly 64 hexadecimal characters.")
         return v
 
-    @field_validator("timestamp_claimed")
+    @field_validator("timestamp_claimed", "downstream_at")
     @classmethod
-    def _validate_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None:
+    def _normalize_datetime(cls, v: Optional[datetime]) -> Optional[datetime]:
+        if v is not None and v.tzinfo is None:
             v = v.replace(tzinfo=timezone.utc)
-        if v > datetime.now(timezone.utc) + timedelta(seconds=60):
-            raise ValueError("timestamp_claimed cannot be in the future.")
         return v
 
-    @field_validator("downstream_at")
+    @field_validator("timestamp_claimed")
     @classmethod
-    def _normalize_downstream_at(cls, v: Optional[datetime]) -> Optional[datetime]:
-        if v is not None and v.tzinfo is None:
-            return v.replace(tzinfo=timezone.utc)
+    def _not_future(cls, v: datetime) -> datetime:
+        if v > datetime.now(timezone.utc) + timedelta(seconds=60):
+            raise ValueError("timestamp_claimed cannot be in the future.")
         return v
 
     @field_validator("witness_ids")
     @classmethod
     def _validate_witness_ids(cls, v: List[str]) -> List[str]:
-        if len(v) > 20:
-            raise ValueError("A maximum of 20 witness IDs is allowed.")
-        return [wid.strip() for wid in v]
+        if len(v) > 20 or any(not x.strip() for x in v):
+            raise ValueError("witness_ids must contain 0-20 non-blank values.")
+        return [x.strip() for x in v]
 
     @model_validator(mode="after")
-    def _check_witness_ids(self) -> "VerifyClaimRequest":
-        if any(not wid for wid in self.witness_ids):
-            raise ValueError("witness_ids cannot contain blank values.")
+    def _set_dpie_context(self) -> "VerifyClaimRequest":
+        source_purpose = "claim-verification"
+        target_purpose = self.downstream_purpose or source_purpose
+        source_scope = "claim"
+        target_scope = self.downstream_scope or source_scope
+        source_jurisdiction = "TX"
+        target_jurisdiction = self.downstream_jurisdiction or source_jurisdiction
+        source_at = self.timestamp_claimed
+        target_at = self.downstream_at or source_at
+        set_context(RequestAssuranceContext(
+            evidence_id=None,
+            source_purpose=source_purpose,
+            source_scope=source_scope,
+            source_jurisdiction=source_jurisdiction,
+            source_at=source_at,
+            target_purpose=target_purpose,
+            target_scope=target_scope,
+            target_jurisdiction=target_jurisdiction,
+            target_at=target_at,
+            rule_id=self.downstream_rule_id or "carrier-default",
+            rule_version=self.downstream_rule_version or "1",
+            rule_authority=self.downstream_rule_authority or "carrier-authority",
+            consequence=self.downstream_consequence,
+            preservation_proof=self.preservation_proof,
+        ))
         return self
 
 
@@ -106,8 +118,6 @@ class VerifyClaimResponse(BaseModel):
     report_url: Optional[str] = None
     recommendation: str
     timestamp_processed: datetime
-
-    # DPIE determination is deliberately separate from FAP verdict.
     dpie_transition_id: Optional[str] = None
     dpie_property: Optional[str] = None
     dpie_state: Optional[str] = None
@@ -115,8 +125,6 @@ class VerifyClaimResponse(BaseModel):
     dpie_failure: Optional[str] = None
     dpie_reason: Optional[str] = None
     dpie_fail_closed: Optional[bool] = None
-
-    # Legacy contract fields retained as optional aliases for older clients.
     status: Optional[VerdictStatus] = None
     solar_confidence: Optional[float] = None
     weather_confidence: Optional[float] = None
@@ -126,6 +134,27 @@ class VerifyClaimResponse(BaseModel):
     media_hash_verified: Optional[bool] = None
     processed_at: Optional[datetime] = None
     request_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _evaluate_dpie(self) -> "VerifyClaimResponse":
+        from dpie_context import get_context
+        from dpie_runtime import assess_request_context
+        ctx = get_context()
+        if ctx is None:
+            return self
+        result = assess_request_context(
+            evidence_id=self.verification_id,
+            verification={"verdict": self.verdict},
+            context=ctx,
+        )
+        self.dpie_transition_id = result["transition_id"]
+        self.dpie_property = result["property"]
+        self.dpie_state = result["state"]
+        self.dpie_decision = result["decision"]
+        self.dpie_failure = result["failure"]
+        self.dpie_reason = result["reason"]
+        self.dpie_fail_closed = result["fail_closed"]
+        return self
 
 
 class ErrorResponse(BaseModel):
