@@ -1,13 +1,5 @@
-"""DPIE assurance primitives.
-
-FAP establishes evidence. DPIE determines whether an assurance property
-established for one state remains entitled to support another state after a
-material transition. It does not authenticate artifacts, grant authority, or
-make policy decisions outside the explicit transition result.
-"""
-
+"""DPIE assurance primitives and adversarial transition evaluator."""
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -20,8 +12,7 @@ class AssuranceState(str, Enum):
     INVALIDATED = "INVALIDATED"
     UNKNOWN = "UNKNOWN"
     CONTRADICTED = "CONTRADICTED"
-    # Compatibility with the earlier boundary vocabulary.
-    VALID = "VALID"
+    VALID = "VALID"  # compatibility vocabulary
 
 
 class Decision(str, Enum):
@@ -91,7 +82,7 @@ class State:
 
 @dataclass(frozen=True)
 class PreservationProof:
-    property_name: str
+    property_name: str = ""
     transition_id: str = ""
     rule_id: str = ""
     rule_version: str = ""
@@ -99,8 +90,13 @@ class PreservationProof:
     evidence_refs: tuple[str, ...] = ()
     valid: bool = True
     reason: str = ""
-    # Compatibility alias used by the first boundary tests.
     property: Optional[Property] = None
+    source_purpose: Optional[str] = None
+    target_purpose: Optional[str] = None
+    source_scope: Optional[str] = None
+    target_scope: Optional[str] = None
+    source_jurisdiction: Optional[str] = None
+    target_jurisdiction: Optional[str] = None
 
     def normalized_property_name(self) -> str:
         return self.property_name or (self.property.value if self.property else "")
@@ -117,7 +113,6 @@ class Transition:
 
 @dataclass(frozen=True)
 class AssuranceTransition:
-    """Compatibility adapter for the original boundary-test vocabulary."""
     transition_id: str
     source_state: Mapping[str, object]
     target_state: Mapping[str, object]
@@ -151,38 +146,29 @@ def is_material(transition: Transition, property_name: str) -> bool:
 
 def preservation_established(transition: Transition, property_name: str) -> bool:
     proof = transition.preservation.get(property_name)
-    if proof is None or not proof.valid:
+    if proof is None or not proof.valid or proof.normalized_property_name() != property_name:
         return False
     target_rule = transition.target.rule
-    proof_property = proof.normalized_property_name()
-    if proof_property != property_name:
-        return False
     if proof.transition_id != transition.transition_id:
         return False
-    if proof.rule_id != target_rule.rule_id or proof.rule_version != target_rule.version:
+    if (proof.rule_id != target_rule.rule_id or proof.rule_version != target_rule.version or
+            proof.authority != target_rule.authority or not proof.evidence_refs):
         return False
-    if proof.authority != target_rule.authority or not proof.evidence_refs:
+    if target_rule.effective_at and transition.target.context.at and target_rule.effective_at > transition.target.context.at:
         return False
-    # A proof cannot be effective merely because its issuer is named. The
-    # target rule's authority is the minimum authority binding here.
-    if target_rule.effective_at and transition.target.context.at:
-        if target_rule.effective_at > transition.target.context.at:
-            return False
-    return True
-
-
-def _result(transition: Transition, property_name: str, state: AssuranceState,
-            decision: Decision, failure: FailureCode, reason: str) -> AssuranceResult:
-    return AssuranceResult(
-        property_name=property_name,
-        state=state,
-        decision=decision,
-        failure=failure,
-        reason=reason,
-        transition_id=transition.transition_id,
-        rule_id=transition.target.rule.rule_id,
-        rule_version=transition.target.rule.version,
+    src, dst = transition.source.context, transition.target.context
+    checks = (
+        (proof.source_purpose, src.purpose), (proof.target_purpose, dst.purpose),
+        (proof.source_scope, src.scope), (proof.target_scope, dst.scope),
+        (proof.source_jurisdiction, src.jurisdiction), (proof.target_jurisdiction, dst.jurisdiction),
     )
+    return all(expected is None or supplied == expected for expected, supplied in checks)
+
+
+def _result(t: Transition, prop: str, state: AssuranceState, decision: Decision,
+            failure: FailureCode, reason: str) -> AssuranceResult:
+    return AssuranceResult(prop, state, decision, failure, reason, t.transition_id,
+                           t.target.rule.rule_id, t.target.rule.version)
 
 
 def evaluate_transition(transition: Transition, property_name: str, *, consequence: str = "standard") -> AssuranceResult:
@@ -196,35 +182,35 @@ def evaluate_transition(transition: Transition, property_name: str, *, consequen
 
     if not is_material(transition, property_name):
         if _is_valid_source(source_value):
-            return _result(transition, property_name, AssuranceState.PRESERVED,
-                           Decision.AUTHORIZED, FailureCode.NONE,
+            return _result(transition, property_name, AssuranceState.PRESERVED, Decision.AUTHORIZED,
+                           FailureCode.NONE,
                            "Transition is outside the declared materiality boundary for this property.")
         return _result(transition, property_name, target_value, Decision.DEFER,
                        FailureCode.PRESERVATION_UNESTABLISHED,
                        "Source assurance is not established for this property.")
 
+    proof = transition.preservation.get(property_name)
     if preservation_established(transition, property_name):
-        return _result(transition, property_name, AssuranceState.PRESERVED,
-                       Decision.AUTHORIZED, FailureCode.NONE,
-                       "Explicit preservation relation established for the material transition.")
+        return _result(transition, property_name, AssuranceState.PRESERVED, Decision.AUTHORIZED,
+                       FailureCode.NONE, "Explicit preservation relation established for the material transition.")
 
-    src = transition.source.context
-    dst = transition.target.context
-    if src.purpose != dst.purpose or src.scope != dst.scope:
-        failure = FailureCode.MISAPPLICATION
-        reason = "Artifact assurance remains intact, but declared application context changed without preservation proof."
+    src, dst = transition.source.context, transition.target.context
+    if proof is not None and proof.valid and proof.authority != transition.target.rule.authority:
+        failure, reason = FailureCode.AUTHORITY_MISMATCH, "Preservation proof is authentic-looking but was issued by an authority not bound to the target rule."
+    elif src.purpose != dst.purpose or src.scope != dst.scope:
+        failure, reason = FailureCode.MISAPPLICATION, "Artifact assurance remains intact, but declared application context changed without valid preservation proof."
     elif src.jurisdiction != dst.jurisdiction:
-        failure = FailureCode.JURISDICTION_MISMATCH
-        reason = "Jurisdiction changed without an explicit preservation determination."
+        failure, reason = FailureCode.JURISDICTION_MISMATCH, "Jurisdiction changed without an explicit preservation determination."
     elif src.at != dst.at:
-        failure = FailureCode.TEMPORAL_MISMATCH
-        reason = "Temporal context changed without an explicit preservation determination."
+        failure, reason = FailureCode.TEMPORAL_MISMATCH, "Temporal context changed without an explicit preservation determination."
     elif transition.source.rule != transition.target.rule:
-        failure = FailureCode.RULE_MISMATCH
-        reason = "Governing rule binding changed without an explicit preservation determination."
+        failure, reason = FailureCode.RULE_MISMATCH, "Governing rule binding changed without an explicit preservation determination."
+    elif proof is not None and proof.valid and proof.target_purpose not in (None, dst.purpose):
+        failure, reason = FailureCode.MISAPPLICATION, "Preservation proof is scoped to a different purpose."
+    elif proof is not None and proof.valid and proof.target_scope not in (None, dst.scope):
+        failure, reason = FailureCode.MISAPPLICATION, "Preservation proof is scoped to a different target scope."
     else:
-        failure = FailureCode.PRESERVATION_UNESTABLISHED
-        reason = "Material transition detected, but preservation of the assurance property was not established."
+        failure, reason = FailureCode.PRESERVATION_UNESTABLISHED, "Material transition detected, but preservation of the assurance property was not established."
 
     decision = Decision.DENY if consequence.lower() == "critical" else Decision.QUARANTINE
     return _result(transition, property_name, AssuranceState.INVALIDATED, decision, failure, reason)
@@ -233,45 +219,30 @@ def evaluate_transition(transition: Transition, property_name: str, *, consequen
 def _compat_to_transition(t: AssuranceTransition, property_name: str) -> Transition:
     def convert(raw: Mapping[str, object], default_id: str) -> State:
         props = raw.get("properties", {})
-        normalized = {}
-        if isinstance(props, Mapping):
-            for key, value in props.items():
-                normalized[str(getattr(key, "value", key))] = AssuranceState(getattr(value, "value", value))
-        context_raw = raw.get("context", {})
-        context_raw = context_raw if isinstance(context_raw, Mapping) else {}
-        rule_id = str(raw.get("rule_id", "carrier-default"))
-        version = str(raw.get("rule_version", "1"))
-        authority = str(raw.get("authority_id", "carrier-authority"))
-        jurisdiction = context_raw.get("jurisdiction")
-        rule = RuleBinding(rule_id, version, authority, str(jurisdiction) if jurisdiction else None)
-        return State(
-            str(raw.get("state_id", default_id)),
-            normalized,
-            AssuranceContext(
-                identity=str(raw.get("identity")) if raw.get("identity") else None,
-                purpose=str(context_raw.get("purpose")) if context_raw.get("purpose") else None,
-                scope=str(context_raw.get("scope")) if context_raw.get("scope") else None,
-                jurisdiction=str(jurisdiction) if jurisdiction else None,
-                at=context_raw.get("at") if isinstance(context_raw.get("at"), datetime) else None,
-            ),
-            rule,
-        )
-
-    source = convert(t.source_state, "Q1")
-    target = convert(t.target_state, "Q2")
+        normalized = {str(getattr(k, "value", k)): AssuranceState(getattr(v, "value", v)) for k, v in props.items()} if isinstance(props, Mapping) else {}
+        c = raw.get("context", {})
+        c = c if isinstance(c, Mapping) else {}
+        jurisdiction = c.get("jurisdiction")
+        return State(str(raw.get("state_id", default_id)), normalized,
+                     AssuranceContext(str(raw.get("identity")) if raw.get("identity") else None,
+                                      str(c.get("purpose")) if c.get("purpose") else None,
+                                      str(c.get("scope")) if c.get("scope") else None,
+                                      str(jurisdiction) if jurisdiction else None,
+                                      c.get("at") if isinstance(c.get("at"), datetime) else None),
+                     RuleBinding(str(raw.get("rule_id", "carrier-default")),
+                                 str(raw.get("rule_version", "1")),
+                                 str(raw.get("authority_id", "carrier-authority")),
+                                 str(jurisdiction) if jurisdiction else None))
+    source, target = convert(t.source_state, "Q1"), convert(t.target_state, "Q2")
     proofs = {p.normalized_property_name(): p for p in t.preservation_proofs}
     return Transition(t.transition_id, source, target,
-                      frozenset({property_name}) if t.materiality is Materiality.MATERIAL else frozenset(),
-                      proofs)
+                      frozenset({property_name}) if t.materiality is Materiality.MATERIAL else frozenset(), proofs)
 
 
 def evaluate_compat_transition(t: AssuranceTransition, property_name: str) -> AssuranceResult:
-    return evaluate_transition(_compat_to_transition(t, property_name), property_name,
-                               consequence="critical")
+    return evaluate_transition(_compat_to_transition(t, property_name), property_name, consequence="critical")
 
 
-# Keep the public function accepting both the canonical Transition and the
-# original AssuranceTransition so existing adversarial callers remain valid.
 _original_evaluate_transition = evaluate_transition
 
 def evaluate_transition(transition, property_name: str, *, consequence: str = "standard"):
@@ -283,9 +254,6 @@ def evaluate_transition(transition, property_name: str, *, consequence: str = "s
 def perfect_artifact_misapplication_demo() -> AssuranceResult:
     rule = RuleBinding("carrier-default", "1", "carrier-authority", "TX")
     t = datetime(2026, 8, 28, 14, 0, tzinfo=timezone.utc)
-    source = State("Q1", {"applicability": AssuranceState.PRESERVED},
-                   AssuranceContext("ADJ-17", "claim-adjustment", "auto", "TX", t), rule)
-    target = State("Q2", {"applicability": AssuranceState.PRESERVED},
-                   AssuranceContext("ADJ-17", "litigation-discovery", "auto", "TX", t), rule)
-    return evaluate_transition(Transition("T1", source, target, frozenset({"applicability"})),
-                               "applicability", consequence="critical")
+    source = State("Q1", {"applicability": AssuranceState.PRESERVED}, AssuranceContext("ADJ-17", "claim-adjustment", "auto", "TX", t), rule)
+    target = State("Q2", {"applicability": AssuranceState.PRESERVED}, AssuranceContext("ADJ-17", "litigation-discovery", "auto", "TX", t), rule)
+    return evaluate_transition(Transition("T1", source, target, frozenset({"applicability"})), "applicability", consequence="critical")
