@@ -26,7 +26,7 @@ jobs:
           ruff check --fix dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py
           ruff check dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py
       - name: Type-check with mypy
-        run: mypy --ignore-missing-imports .
+        run: mypy --ignore-missing-imports --explicit-package-bases .
       - name: Test with pytest
         run: pytest -v --tb=short
 
@@ -37,21 +37,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/fap-insurance:latest
-            ghcr.io/${{ github.repository_owner }}/fap-insurance:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Build image
+        run: docker build -t fap-insurance:${{ github.sha }} .
