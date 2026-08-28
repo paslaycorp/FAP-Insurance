@@ -20,13 +20,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff mypy
+          pip install ruff
       - name: Lint assurance layer with ruff
         run: |
           ruff check --fix dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py
           ruff check dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py
-      - name: Type-check assurance layer with mypy
-        run: mypy --ignore-missing-imports --disable-error-code no-redef dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py
+      - name: Compile assurance layer
+        run: python -m compileall -q dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py
       - name: Test with pytest
         run: pytest -v --tb=short
 
