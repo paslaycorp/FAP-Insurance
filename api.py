@@ -1,4 +1,4 @@
-"""FAP-Insurance API: evidence verification with DPIE assurance handoff."""
+"""FAP-Insurance API: evidence verification with DPIE assurance enforcement."""
 import hashlib
 import traceback
 import uuid
@@ -20,6 +20,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from audit import get_by_claim_id, get_by_evidence_id, get_by_request_id, get_chain_integrity, store_verification
 from auth import verify_api_key
 from config import config
+from dpie_runtime import assess_request_context
+from dpie_context import get_context
 from evidence import EvidenceEnvelope, OracleObservation
 from fusion import EvidenceFusionEngine
 from logger import clear_request_id, log, set_request_id
@@ -139,12 +141,44 @@ async def _process_single_claim(req: VerifyClaimRequest, fap_client: FapCoreClie
         fusion_result = fusion.evaluate(envelope.observations)
         envelope.confidence_score = fusion_result.confidence
         envelope.verdict = fusion_result.verdict
+
+        # DPIE is evaluated BEFORE the audit record is sealed. This makes the
+        # downstream assurance decision part of the immutable evidence record,
+        # rather than a post-hoc annotation.
+        dpie_context = get_context()
+        dpie_result = None
+        if dpie_context is not None:
+            dpie_result = assess_request_context(
+                evidence_id=envelope.evidence_id,
+                verification={"verdict": envelope.verdict},
+                context=dpie_context,
+            )
+            envelope.audit_metadata = {"dpie": dpie_result}
+
         elapsed_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
         report_html = AdjusterReport(claim_id=req.claim_id, policy_number=req.policy_number, adjuster_notes=req.adjuster_notes, fap_result=fap_result, request_data=req.model_dump()).to_html()
         audit_record = store_verification(request_id=req_id, claim_id=req.claim_id, verdict=envelope.verdict, confidence_score=envelope.confidence_score, components=fap_components or {o.oracle_type: o.confidence for o in envelope.observations}, request_payload=req.model_dump(), envelope=envelope.to_audit_payload(), reality_anchor={"solar": solar_result.to_dict()}, raw_fap_response=fap_result or None, engine_version=SETTINGS.VERSION, policy_version="carrier-default-v1", oracle_versions={"fap_core": getattr(config, "FAP_CORE_VERSION", "unknown"), "solar": "noaa-swpc-direct-v1", "weather": "open-meteo-direct-v1", "fusion": "bayesian-v1", "policy": "carrier-default-v1"}, report_html=report_html)
         envelope.audit_record_hash = audit_record.record_hash
         envelope.fap_core_response = fap_result
-        return VerifyClaimResponse(claim_id=req.claim_id, verification_id=fap_result.get("artifact_id", envelope.evidence_id), verdict=envelope.verdict, verdict_label=_map_verdict(envelope.verdict), score=round(envelope.confidence_score, 4), confidence=round(float(fap_result.get("confidence", 0.0)), 4), components=fap_components, solar_flux_at_time=solar_result.flux, weather_match=fap_components.get("weather"), device_enrolled=bool(req.enrollment_id), witness_count=len(req.witness_ids), processing_time_ms=elapsed_ms, report_url=f"/audit/report/{req_id}", recommendation=_recommendation(envelope.verdict, envelope.confidence_score), timestamp_processed=datetime.now(timezone.utc), status=envelope.verdict, processed_at=datetime.now(timezone.utc), request_id=req_id)
+
+        # Fail closed after sealing the determination. A denied/quarantined
+        # downstream use is never returned as a successful verification.
+        if dpie_result and dpie_result["decision"] in {"DENY", "QUARANTINE"}:
+            status_code = 403 if dpie_result["decision"] == "DENY" else 409
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "error": "DPIE_ASSURANCE_BLOCKED",
+                    "decision": dpie_result["decision"],
+                    "failure": dpie_result["failure"],
+                    "reason": dpie_result["reason"],
+                    "transition_id": dpie_result["transition_id"],
+                    "evidence_id": envelope.evidence_id,
+                    "audit_record_hash": audit_record.record_hash,
+                },
+            )
+
+        return VerifyClaimResponse(claim_id=req.claim_id, verification_id=audit_record.evidence_id, verdict=envelope.verdict, verdict_label=_map_verdict(envelope.verdict), score=round(envelope.confidence_score, 4), confidence=round(float(fap_result.get("confidence", 0.0)), 4), components=fap_components, solar_flux_at_time=solar_result.flux, weather_match=fap_components.get("weather"), device_enrolled=bool(req.enrollment_id), witness_count=len(req.witness_ids), processing_time_ms=elapsed_ms, report_url=f"/audit/report/{req_id}", recommendation=_recommendation(envelope.verdict, envelope.confidence_score), timestamp_processed=datetime.now(timezone.utc), status=envelope.verdict, processed_at=datetime.now(timezone.utc), request_id=req_id)
     finally:
         from dpie_context import clear_context
         clear_context()
@@ -173,6 +207,8 @@ async def verify_batch(request: Request, requests: List[VerifyClaimRequest], api
         try:
             result = await _process_single_claim(req, app.state.fap_client, app.state.reality, app.state.fusion, req_id)
             results.append({"claim_id": req.claim_id, "status": "ok", "result": result.model_dump()})
+        except HTTPException as exc:
+            results.append({"claim_id": req.claim_id, "status": "blocked", "status_code": exc.status_code, "detail": exc.detail})
         except Exception as exc:
             results.append({"claim_id": req.claim_id, "status": "error", "detail": str(exc)})
     return {"processed": len(results), "results": results}
