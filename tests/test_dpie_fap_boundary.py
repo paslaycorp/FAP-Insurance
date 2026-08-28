@@ -17,19 +17,19 @@ from dpie_assurance import (
 
 
 def _state(**overrides):
-    base = dict(
-        state_id="FAP-EV-TEST-001",
-        properties={
+    base = {
+        "state_id": "FAP-EV-TEST-001",
+        "properties": {
             Property.INTEGRITY: AssuranceState.VALID,
             Property.PROVENANCE: AssuranceState.VALID,
             Property.IDENTITY: AssuranceState.VALID,
             Property.EVIDENCE: AssuranceState.VALID,
         },
-        context={"purpose": "claim_verification", "jurisdiction": "TX"},
-        rule_id="fap-insurance-v0.3",
-        rule_version="0.3.0",
-        authority_id="carrier-adjuster",
-    )
+        "context": {"purpose": "claim_verification", "jurisdiction": "TX"},
+        "rule_id": "fap-insurance-v0.3",
+        "rule_version": "0.3.0",
+        "authority_id": "carrier-adjuster",
+    }
     base.update(overrides)
     return base
 
