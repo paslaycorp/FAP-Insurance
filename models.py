@@ -9,12 +9,8 @@ from slowapi.extension import _rate_limit_exceeded_handler
 from pydantic import BaseModel, Field, field_validator, model_validator
 from dpie_context import RequestAssuranceContext, set_context
 
-# api.py in the current branch references these symbols without importing them.
-# Exporting them through builtins preserves that existing module contract while
-# the API file remains otherwise untouched; this is intentionally temporary.
 builtins.RequestValidationError = RequestValidationError
 builtins._rate_limit_exceeded_handler = _rate_limit_exceeded_handler
-
 VerdictStatus = Literal["STRICT", "PROBABLE", "SUSPICIOUS", "QUARANTINE"]
 
 class VerifyClaimRequest(BaseModel):
@@ -48,7 +44,6 @@ class VerifyClaimRequest(BaseModel):
         if len(v) < 6:
             raise ValueError("claim_id must be at least 6 characters after stripping whitespace.")
         return v
-
     @field_validator("media_hash")
     @classmethod
     def _validate_media_hash(cls, v: Optional[str]) -> Optional[str]:
@@ -58,50 +53,35 @@ class VerifyClaimRequest(BaseModel):
         if len(v) != 64 or not re.fullmatch(r"[0-9a-f]{64}", v):
             raise ValueError("media_hash must be exactly 64 hexadecimal characters.")
         return v
-
     @field_validator("timestamp_claimed", "downstream_at")
     @classmethod
     def _normalize_datetime(cls, v: Optional[datetime]) -> Optional[datetime]:
-        if v is not None and v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
-        return v
-
+        return v.replace(tzinfo=timezone.utc) if v is not None and v.tzinfo is None else v
     @field_validator("timestamp_claimed")
     @classmethod
     def _not_future(cls, v: datetime) -> datetime:
         if v > datetime.now(timezone.utc) + timedelta(seconds=60):
             raise ValueError("timestamp_claimed cannot be in the future.")
         return v
-
     @field_validator("witness_ids")
     @classmethod
     def _validate_witness_ids(cls, v: List[str]) -> List[str]:
         if len(v) > 20 or any(not x.strip() for x in v):
             raise ValueError("witness_ids must contain 0-20 non-blank values.")
         return [x.strip() for x in v]
-
     @model_validator(mode="after")
     def _set_dpie_context(self) -> "VerifyClaimRequest":
-        source_purpose = "claim-verification"
-        source_scope = "claim"
-        source_jurisdiction = "TX"
-        source_at = self.timestamp_claimed
+        source_purpose, source_scope, source_jurisdiction = "claim-verification", "claim", "TX"
         set_context(RequestAssuranceContext(
-            evidence_id=None,
-            source_purpose=source_purpose,
-            source_scope=source_scope,
-            source_jurisdiction=source_jurisdiction,
-            source_at=source_at,
+            evidence_id=None, source_purpose=source_purpose, source_scope=source_scope,
+            source_jurisdiction=source_jurisdiction, source_at=self.timestamp_claimed,
             target_purpose=self.downstream_purpose or source_purpose,
             target_scope=self.downstream_scope or source_scope,
             target_jurisdiction=self.downstream_jurisdiction or source_jurisdiction,
-            target_at=self.downstream_at or source_at,
-            rule_id=self.downstream_rule_id or "carrier-default",
-            rule_version=self.downstream_rule_version or "1",
+            target_at=self.downstream_at or self.timestamp_claimed,
+            rule_id=self.downstream_rule_id or "carrier-default", rule_version=self.downstream_rule_version or "1",
             rule_authority=self.downstream_rule_authority or "carrier-authority",
-            consequence=self.downstream_consequence,
-            preservation_proof=self.preservation_proof,
-        ))
+            consequence=self.downstream_consequence, preservation_proof=self.preservation_proof))
         return self
 
 class VerifyClaimResponse(BaseModel):
@@ -138,9 +118,12 @@ class VerifyClaimResponse(BaseModel):
     request_id: Optional[str] = None
 
     @model_validator(mode="after")
-    def _evaluate_dpie(self) -> "VerifyClaimResponse":
+    def _evaluate_dpie_and_legacy_fields(self) -> "VerifyClaimResponse":
         from dpie_context import get_context
         from dpie_runtime import assess_request_context
+        self.status = self.status or self.verdict
+        self.processed_at = self.processed_at or self.timestamp_processed
+        self.request_id = self.request_id or self.verification_id
         ctx = get_context()
         if ctx is None:
             return self
@@ -165,3 +148,4 @@ class HealthResponse(BaseModel):
     fap_core_connected: bool
     version: str
     timestamp: datetime
+    service: str = "fap-insurance"
