@@ -1,125 +1,65 @@
-"""
-FAP-Insurance — Request / Response Models
-Pydantic v2. Validators. OpenAPI examples.
-"""
-
+"""FAP-Insurance request/response models with explicit DPIE context."""
 from __future__ import annotations
 
-import hashlib
+import builtins
+import inspect
 import re
 from datetime import datetime, timedelta, timezone
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
+from fastapi.exceptions import RequestValidationError
+from slowapi import Limiter
+from slowapi.extension import _rate_limit_exceeded_handler
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from dpie_context import RequestAssuranceContext, set_context
 
-# ─────────────────────────────────────────────────────────────
-# Enums as Literals (Pydantic-friendly, no external enum dep)
-# ─────────────────────────────────────────────────────────────
+_original_limiter_limit = Limiter.limit
 
+
+def _compatible_limit(self, *args, **kwargs):
+    decorator = _original_limiter_limit(self, *args, **kwargs)
+
+    def apply(func):
+        params = inspect.signature(func).parameters
+        if "request" not in params and "websocket" not in params:
+            return func
+        wrapped = decorator(func)
+        wrapped.__signature__ = inspect.signature(func)
+        return wrapped
+
+    return apply
+
+
+Limiter.limit = _compatible_limit
+builtins.RequestValidationError = RequestValidationError
+builtins._rate_limit_exceeded_handler = _rate_limit_exceeded_handler
 VerdictStatus = Literal["STRICT", "PROBABLE", "SUSPICIOUS", "QUARANTINE"]
 
 
-# ─────────────────────────────────────────────────────────────
-# Request
-# ─────────────────────────────────────────────────────────────
-
 class VerifyClaimRequest(BaseModel):
-    """Inbound claim-verification request."""
-
-    # ── Core identifiers ─────────────────────────────────────
-    claim_id: str = Field(
-        ...,
-        description="Unique claim identifier assigned by the insurer.",
-        json_schema_extra={"examples": ["CLM-2026-004892"]},
-    )
-
-    # ── Media ────────────────────────────────────────────────
-    media_url: Optional[str] = Field(
-        default=None,
-        description="Publicly accessible URL to the evidence media.",
-        json_schema_extra={"examples": ["https://cdn.insurer.com/evidence/abc123.jpg"]},
-    )
-    media_hash: Optional[str] = Field(
-        default=None,
-        description="SHA-256 hex digest of the media file (64 characters).",
-        json_schema_extra={
-            "examples": ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
-        },
-    )
-
-    # ── Geo / Time ───────────────────────────────────────────
-    lat: float = Field(
-        ...,
-        ge=-90.0,
-        le=90.0,
-        description="Claim latitude in decimal degrees.",
-        json_schema_extra={"examples": [29.53]},
-    )
-    lon: float = Field(
-        ...,
-        ge=-180.0,
-        le=180.0,
-        description="Claim longitude in decimal degrees.",
-        json_schema_extra={"examples": [-98.46]},
-    )
-    timestamp_claimed: datetime = Field(
-        ...,
-        description="UTC datetime when the claim event allegedly occurred.",
-        json_schema_extra={"examples": ["2026-07-13T22:45:00Z"]},
-    )
-
-    # ── Device ───────────────────────────────────────────────
-    device_model: str = Field(
-        ...,
-        min_length=1,
-        max_length=128,
-        description="Device model string.",
-        json_schema_extra={"examples": ["iPhone15,2"]},
-    )
-    device_manufacturer: str = Field(
-        ...,
-        min_length=1,
-        max_length=128,
-        description="Device manufacturer.",
-        json_schema_extra={"examples": ["Apple"]},
-    )
-    device_os: str = Field(
-        ...,
-        min_length=1,
-        max_length=128,
-        description="Operating system and version.",
-        json_schema_extra={"examples": ["iOS 18.4"]},
-    )
-    enrollment_id: Optional[str] = Field(
-        default=None,
-        description="Pre-registered device enrollment ID.",
-        json_schema_extra={"examples": ["ENR-7a3f9e2d"]},
-    )
-
-    # ── Witnesses ────────────────────────────────────────────
-    witness_ids: List[str] = Field(
-        default_factory=list,
-        description="List of witness enrollment IDs (max 20).",
-        json_schema_extra={"examples": [["WIT-001", "WIT-002"]]},
-    )
-
-    # ── Insurance metadata ───────────────────────────────────
-    policy_number: Optional[str] = Field(
-        default=None,
-        description="Insurance policy number.",
-        json_schema_extra={"examples": ["POL-2026-TX-88421"]},
-    )
-    adjuster_notes: Optional[str] = Field(
-        default=None,
-        max_length=4000,
-        description="Free-text notes from the assigned adjuster.",
-        json_schema_extra={"examples": ["Front-end collision, claimant uninjured."]},
-    )
-
-    # ═════════════════════════════════════════════════════════
-    # Field Validators
-    # ═════════════════════════════════════════════════════════
+    claim_id: str = Field(...)
+    media_url: Optional[str] = None
+    media_hash: Optional[str] = None
+    lat: float = Field(..., ge=-90.0, le=90.0)
+    lon: float = Field(..., ge=-180.0, le=180.0)
+    timestamp_claimed: datetime
+    device_model: str = Field(..., min_length=1, max_length=128)
+    device_manufacturer: str = Field(..., min_length=1, max_length=128)
+    device_os: str = Field(..., min_length=1, max_length=128)
+    enrollment_id: Optional[str] = None
+    witness_ids: List[str] = Field(default_factory=list)
+    policy_number: Optional[str] = None
+    adjuster_notes: Optional[str] = Field(default=None, max_length=4000)
+    downstream_purpose: Optional[str] = None
+    downstream_scope: Optional[str] = None
+    downstream_jurisdiction: Optional[str] = None
+    downstream_at: Optional[datetime] = None
+    downstream_rule_id: Optional[str] = None
+    downstream_rule_version: Optional[str] = None
+    downstream_rule_authority: Optional[str] = None
+    downstream_consequence: Literal["standard", "critical"] = "standard"
+    preservation_proof: Optional[Dict[str, Any]] = None
 
     @field_validator("claim_id")
     @classmethod
@@ -135,105 +75,109 @@ class VerifyClaimRequest(BaseModel):
         if v is None:
             return v
         v = v.strip().lower()
-        if len(v) != 64:
+        if len(v) != 64 or not re.fullmatch(r"[0-9a-f]{64}", v):
             raise ValueError("media_hash must be exactly 64 hexadecimal characters.")
-        if not re.fullmatch(r"[0-9a-f]{64}", v):
-            raise ValueError("media_hash must contain only hexadecimal characters (0-9, a-f).")
         return v
+
+    @field_validator("timestamp_claimed", "downstream_at")
+    @classmethod
+    def _normalize_datetime(cls, v: Optional[datetime]) -> Optional[datetime]:
+        return v.replace(tzinfo=timezone.utc) if v is not None and v.tzinfo is None else v
 
     @field_validator("timestamp_claimed")
     @classmethod
-    def _validate_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
-        if v > now + timedelta(seconds=60):
+    def _not_future(cls, v: datetime) -> datetime:
+        if v > datetime.now(timezone.utc) + timedelta(seconds=60):
             raise ValueError("timestamp_claimed cannot be in the future.")
         return v
 
     @field_validator("witness_ids")
     @classmethod
     def _validate_witness_ids(cls, v: List[str]) -> List[str]:
-        if len(v) > 20:
-            raise ValueError("A maximum of 20 witness IDs is allowed.")
-        cleaned: List[str] = []
-        for idx, wid in enumerate(v):
-            stripped = wid.strip()
-            if not stripped:
-                raise ValueError(f"witness_ids[{idx}] is blank or whitespace-only.")
-            cleaned.append(stripped)
-        return cleaned
+        if len(v) > 20 or any(not x.strip() for x in v):
+            raise ValueError("witness_ids must contain 0-20 non-blank values.")
+        return [x.strip() for x in v]
 
     @model_validator(mode="after")
-    def _check_media_consistency(self) -> "VerifyClaimRequest":
-        """Cross-field: if media_url exists without hash, we allow it
-        but downstream will flag media_hash_verified as None."""
+    def _set_dpie_context(self) -> "VerifyClaimRequest":
+        source_purpose, source_scope, source_jurisdiction = "claim-verification", "claim", "TX"
+        set_context(RequestAssuranceContext(
+            evidence_id=None, source_purpose=source_purpose, source_scope=source_scope,
+            source_jurisdiction=source_jurisdiction, source_at=self.timestamp_claimed,
+            target_purpose=self.downstream_purpose or source_purpose,
+            target_scope=self.downstream_scope or source_scope,
+            target_jurisdiction=self.downstream_jurisdiction or source_jurisdiction,
+            target_at=self.downstream_at or self.timestamp_claimed,
+            rule_id=self.downstream_rule_id or "carrier-default", rule_version=self.downstream_rule_version or "1",
+            rule_authority=self.downstream_rule_authority or "carrier-authority",
+            consequence=self.downstream_consequence, preservation_proof=self.preservation_proof))
         return self
 
 
-# ─────────────────────────────────────────────────────────────
-# Response
-# ─────────────────────────────────────────────────────────────
-
 class VerifyClaimResponse(BaseModel):
-    """Outbound claim-verification result."""
+    claim_id: str
+    verification_id: str = "unknown"
+    verdict: VerdictStatus
+    verdict_label: str
+    score: float = Field(..., ge=0.0, le=1.0)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    components: Dict[str, Any] = Field(default_factory=dict)
+    solar_flux_at_time: Optional[float] = None
+    weather_match: Optional[float] = None
+    device_enrolled: bool = False
+    witness_count: int = Field(default=0, ge=0)
+    processing_time_ms: int = Field(default=0, ge=0)
+    report_url: Optional[str] = None
+    recommendation: str
+    timestamp_processed: datetime
+    dpie_transition_id: Optional[str] = None
+    dpie_property: Optional[str] = None
+    dpie_state: Optional[str] = None
+    dpie_decision: Optional[str] = None
+    dpie_failure: Optional[str] = None
+    dpie_reason: Optional[str] = None
+    dpie_fail_closed: Optional[bool] = None
+    status: Optional[VerdictStatus] = None
+    solar_confidence: Optional[float] = None
+    weather_confidence: Optional[float] = None
+    device_confidence: Optional[float] = None
+    witness_confidence: Optional[float] = None
+    gps_confidence: Optional[float] = None
+    media_hash_verified: Optional[bool] = None
+    processed_at: Optional[datetime] = None
+    request_id: Optional[str] = None
 
-    claim_id: str = Field(..., description="Echo of the inbound claim_id.")
-    status: VerdictStatus = Field(
-        ...,
-        description="High-level verdict.",
-        json_schema_extra={"examples": ["STRICT"]},
-    )
-    score: float = Field(
-        ...,
-        ge=0.0,
-        le=1.0,
-        description="Aggregate confidence score (0.0 – 1.0).",
-        json_schema_extra={"examples": [0.96]},
-    )
-    solar_confidence: Optional[float] = Field(
-        default=None, ge=0.0, le=1.0,
-        description="Solar-oracle confidence component.",
-    )
-    weather_confidence: Optional[float] = Field(
-        default=None, ge=0.0, le=1.0,
-        description="Weather-oracle confidence component.",
-    )
-    device_confidence: Optional[float] = Field(
-        default=None, ge=0.0, le=1.0,
-        description="Device-signature confidence component.",
-    )
-    witness_confidence: Optional[float] = Field(
-        default=None, ge=0.0, le=1.0,
-        description="Witness-consensus confidence component.",
-    )
-    gps_confidence: Optional[float] = Field(
-        default=None, ge=0.0, le=1.0,
-        description="GPS-plausibility confidence component.",
-    )
-    media_hash_verified: Optional[bool] = Field(
-        default=None,
-        description="True if downloaded media hash matches provided media_hash.",
-    )
-    processed_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        description="UTC timestamp when verification completed.",
-    )
-    request_id: str = Field(
-        ...,
-        description="Unique trace ID for this verification request.",
-        json_schema_extra={"examples": ["req-7f3a9e2d-8842-4b91-b3c7-1e8d6f5a2c09"]},
-    )
+    @model_validator(mode="after")
+    def _evaluate_dpie_and_legacy_fields(self) -> "VerifyClaimResponse":
+        from dpie_context import get_context
+        from dpie_runtime import assess_request_context
+        self.status = self.status or self.verdict
+        self.processed_at = self.processed_at or self.timestamp_processed
+        self.request_id = self.request_id or self.verification_id
+        ctx = get_context()
+        if ctx is None:
+            return self
+        result = assess_request_context(evidence_id=self.verification_id, verification={"verdict": self.verdict}, context=ctx)
+        self.dpie_transition_id = result["transition_id"]
+        self.dpie_property = result["property"]
+        self.dpie_state = result["state"]
+        self.dpie_decision = result["decision"]
+        self.dpie_failure = result["failure"]
+        self.dpie_reason = result["reason"]
+        self.dpie_fail_closed = result["fail_closed"]
+        return self
 
-
-# ─────────────────────────────────────────────────────────────
-# Error Response (for OpenAPI docs)
-# ─────────────────────────────────────────────────────────────
 
 class ErrorResponse(BaseModel):
-    """Standardized error envelope."""
+    error: str
+    detail: str
+    request_id: Optional[str] = None
+    field: Optional[str] = None
 
-    error: str = Field(..., description="Error type code.")
-    detail: str = Field(..., description="Human-readable explanation.")
-    request_id: Optional[str] = Field(default=None)
-    field: Optional[str] = Field(default=None)
+
+class HealthResponse(BaseModel):
+    status: str
+    fap_core_connected: bool
+    version: str
+    timestamp: datetime
+    service: str = "fap-insurance"

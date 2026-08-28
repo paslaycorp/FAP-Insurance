@@ -23,15 +23,17 @@ LABEL org.opencontainers.image.version="0.3.0-grand-slam"
 
 WORKDIR /app
 
-# Create non-root user
+# Create build/runtime user
 RUN groupadd -r fap && useradd -r -g fap fap
 
 # Copy only installed packages from builder
 COPY --from=builder /root/.local /home/fap/.local
 ENV PATH=/home/fap/.local/bin:$PATH
 
-# Copy application code
-COPY --chown=fap:fap api.py auth.py config.py logger.py models.py oracles.py ./
+# Copy the complete application module set required by api.py.
+# Explicitly copying only a subset of root modules causes production
+# containers to fail at import time as new assurance/oracle modules land.
+COPY --chown=fap:fap *.py ./
 
 # Switch to non-root
 USER fap

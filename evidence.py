@@ -1,37 +1,18 @@
-"""
-FAP-Insurance — Evidence Envelope
-
-FAP-Core sits ABOVE C2PA, not competing with it.
-The EvidenceEnvelope is the unified provenance container that:
-  · Ingests C2PA manifests (if present)
-  · Attaches independent reality observations (solar, weather, device)
-  · Produces a single confidence score via Bayesian fusion
-  · Writes to the forensic audit ledger
-
-This is the strategic layer that makes FAP-Core defensible.
-"""
-
+"""FAP Evidence Envelope with forensic audit serialization."""
 from __future__ import annotations
-
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-
 from pydantic import BaseModel, Field
 
 
-# ── Oracle Observation ─────────────────────────────────────
-
 class OracleObservation(BaseModel):
-    """A single independent reality observation."""
-
-    oracle_type: str = Field(..., description="solar | weather | device | location | c2pa | consensus")
-    source: str = Field(..., description="NOAA_SWPC | Open-Meteo | FAP-Core | C2PA | DeviceRegistry")
+    oracle_type: str = Field(...)
+    source: str = Field(...)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     confidence: float = Field(..., ge=0.0, le=1.0)
-    raw_value: Optional[Any] = Field(default=None, description="Raw measurement (flux, temp, etc.)")
-    status: str = Field(default="OK", description="OK | DEGRADED | FAILED | DISCREPANCY")
-    discrepancy_note: Optional[str] = Field(default=None)
+    raw_value: Optional[Any] = None
+    status: str = "OK"
+    discrepancy_note: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -45,47 +26,23 @@ class OracleObservation(BaseModel):
         }
 
 
-# ── Evidence Envelope ──────────────────────────────────────
-
 class EvidenceEnvelope(BaseModel):
-    """
-    Unified provenance container.
-
-    Flow:
-      1. Ingest media + metadata
-      2. Extract C2PA manifest (if present)
-      3. Run independent oracles (solar, weather, device)
-      4. Collect OracleObservations
-      5. Fuse into confidence_score
-      6. Persist to forensic audit ledger
-    """
-
-    evidence_id: str = Field(..., description="FAP-generated evidence envelope ID")
-    media_hash: str = Field(..., description="SHA-256 of the media file")
-
-    # ── Provenance layer (C2PA) ────────────────────────────
-    c2pa_present: bool = Field(default=False)
-    c2pa_valid: Optional[bool] = Field(default=None)
-    c2pa_manifest_hash: Optional[str] = Field(default=None)
-    c2pa_signer: Optional[str] = Field(default=None)
+    evidence_id: str
+    media_hash: str
+    c2pa_present: bool = False
+    c2pa_valid: Optional[bool] = None
+    c2pa_manifest_hash: Optional[str] = None
+    c2pa_signer: Optional[str] = None
     c2pa_claims: List[str] = Field(default_factory=list)
-
-    # ── Reality layer ──────────────────────────────────────
     capture_time: datetime
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
-    device_id: Optional[str] = Field(default=None)
-
-    # ── Oracle observations (the signal layer) ─────────────
+    device_id: Optional[str] = None
     observations: List[OracleObservation] = Field(default_factory=list)
-
-    # ── Consensus ──────────────────────────────────────────
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
-    verdict: str = Field(default="UNKNOWN")
-
-    # ── Audit linkage ──────────────────────────────────────
-    audit_record_hash: Optional[str] = Field(default=None)
-    fap_core_response: Optional[Dict[str, Any]] = Field(default=None)
+    verdict: str = "UNKNOWN"
+    audit_record_hash: Optional[str] = None
+    fap_core_response: Optional[Dict[str, Any]] = None
 
     def add_observation(self, obs: OracleObservation) -> "EvidenceEnvelope":
         self.observations.append(obs)
@@ -93,31 +50,17 @@ class EvidenceEnvelope(BaseModel):
         return self
 
     def _recalculate_confidence(self) -> None:
-        """Bayesian-inspired fusion of independent observations.
-
-        Each observation is treated as independent evidence.
-        Confidence = 1 - product(1 - c_i) for all OK observations.
-        Discrepancies and FAILED observations reduce confidence.
-        """
         ok_obs = [o for o in self.observations if o.status == "OK"]
         failed_obs = [o for o in self.observations if o.status in ("FAILED", "DISCREPANCY")]
-
         if not ok_obs:
             self.confidence_score = 0.0
             return
-
-        # Independent evidence fusion
         product = 1.0
         for obs in ok_obs:
             product *= (1.0 - obs.confidence)
-        confidence = 1.0 - product
-
-        # Penalty for failures/discrepancies
-        penalty = 0.15 * len(failed_obs)
-        self.confidence_score = max(0.0, min(1.0, confidence - penalty))
+        self.confidence_score = max(0.0, min(1.0, 1.0 - product - 0.15 * len(failed_obs)))
 
     def compute_verdict(self) -> str:
-        """Map confidence score to verdict thresholds."""
         if self.confidence_score >= 0.90:
             self.verdict = "STRICT"
         elif self.confidence_score >= 0.70:
@@ -129,8 +72,8 @@ class EvidenceEnvelope(BaseModel):
         return self.verdict
 
     def to_audit_payload(self) -> Dict[str, Any]:
-        """Serialize for forensic audit ledger."""
-        return {
+        """Serialize FAP evidence plus the DPIE determination into the same ledger record."""
+        payload: Dict[str, Any] = {
             "evidence_id": self.evidence_id,
             "media_hash": self.media_hash,
             "c2pa_present": self.c2pa_present,
@@ -143,11 +86,48 @@ class EvidenceEnvelope(BaseModel):
             "confidence_score": self.confidence_score,
             "verdict": self.verdict,
         }
+        try:
+            from dpie_context import get_context
+            from dpie_runtime import assess_request_context
+            context = get_context()
+            if context is not None:
+                determination = assess_request_context(
+                    evidence_id=self.evidence_id,
+                    verification={"verdict": self.verdict},
+                    context=context,
+                )
+                payload["dpie"] = {
+                    "transition_id": determination["transition_id"],
+                    "property": determination["property"],
+                    "state": determination["state"],
+                    "decision": determination["decision"],
+                    "failure": determination["failure"],
+                    "reason": determination["reason"],
+                    "rule_id": determination["rule_id"],
+                    "rule_version": determination["rule_version"],
+                    "source_evidence_id": self.evidence_id,
+                    "fail_closed": determination["fail_closed"],
+                    "source_context": {
+                        "purpose": context.source_purpose,
+                        "scope": context.source_scope,
+                        "jurisdiction": context.source_jurisdiction,
+                        "at": context.source_at.isoformat() if context.source_at else None,
+                    },
+                    "target_context": {
+                        "purpose": context.target_purpose,
+                        "scope": context.target_scope,
+                        "jurisdiction": context.target_jurisdiction,
+                        "at": context.target_at.isoformat() if context.target_at else None,
+                    },
+                    "rule_authority": context.rule_authority,
+                    "consequence": context.consequence,
+                }
+        except Exception:
+            # Ledger serialization must not invent assurance. The failure is
+            # intentionally omitted here; the endpoint/model path still
+            # exposes the runtime exception rather than silently authorizing.
+            raise
+        return payload
 
     def discrepancy_report(self) -> List[str]:
-        """List all discrepancy notes for investor review."""
-        return [
-            f"[{o.oracle_type}] {o.discrepancy_note}"
-            for o in self.observations
-            if o.discrepancy_note
-        ]
+        return [f"[{o.oracle_type}] {o.discrepancy_note}" for o in self.observations if o.discrepancy_note]
