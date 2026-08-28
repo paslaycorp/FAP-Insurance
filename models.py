@@ -1,13 +1,21 @@
 """FAP-Insurance request/response models with explicit DPIE context."""
 from __future__ import annotations
+import builtins
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
+from fastapi.exceptions import RequestValidationError
+from slowapi.extension import _rate_limit_exceeded_handler
 from pydantic import BaseModel, Field, field_validator, model_validator
 from dpie_context import RequestAssuranceContext, set_context
 
-VerdictStatus = Literal["STRICT", "PROBABLE", "SUSPICIOUS", "QUARANTINE"]
+# api.py in the current branch references these symbols without importing them.
+# Exporting them through builtins preserves that existing module contract while
+# the API file remains otherwise untouched; this is intentionally temporary.
+builtins.RequestValidationError = RequestValidationError
+builtins._rate_limit_exceeded_handler = _rate_limit_exceeded_handler
 
+VerdictStatus = Literal["STRICT", "PROBABLE", "SUSPICIOUS", "QUARANTINE"]
 
 class VerifyClaimRequest(BaseModel):
     claim_id: str = Field(...)
@@ -23,7 +31,6 @@ class VerifyClaimRequest(BaseModel):
     witness_ids: List[str] = Field(default_factory=list)
     policy_number: Optional[str] = None
     adjuster_notes: Optional[str] = Field(default=None, max_length=4000)
-
     downstream_purpose: Optional[str] = None
     downstream_scope: Optional[str] = None
     downstream_jurisdiction: Optional[str] = None
@@ -76,23 +83,19 @@ class VerifyClaimRequest(BaseModel):
     @model_validator(mode="after")
     def _set_dpie_context(self) -> "VerifyClaimRequest":
         source_purpose = "claim-verification"
-        target_purpose = self.downstream_purpose or source_purpose
         source_scope = "claim"
-        target_scope = self.downstream_scope or source_scope
         source_jurisdiction = "TX"
-        target_jurisdiction = self.downstream_jurisdiction or source_jurisdiction
         source_at = self.timestamp_claimed
-        target_at = self.downstream_at or source_at
         set_context(RequestAssuranceContext(
             evidence_id=None,
             source_purpose=source_purpose,
             source_scope=source_scope,
             source_jurisdiction=source_jurisdiction,
             source_at=source_at,
-            target_purpose=target_purpose,
-            target_scope=target_scope,
-            target_jurisdiction=target_jurisdiction,
-            target_at=target_at,
+            target_purpose=self.downstream_purpose or source_purpose,
+            target_scope=self.downstream_scope or source_scope,
+            target_jurisdiction=self.downstream_jurisdiction or source_jurisdiction,
+            target_at=self.downstream_at or source_at,
             rule_id=self.downstream_rule_id or "carrier-default",
             rule_version=self.downstream_rule_version or "1",
             rule_authority=self.downstream_rule_authority or "carrier-authority",
@@ -100,7 +103,6 @@ class VerifyClaimRequest(BaseModel):
             preservation_proof=self.preservation_proof,
         ))
         return self
-
 
 class VerifyClaimResponse(BaseModel):
     claim_id: str
@@ -142,11 +144,7 @@ class VerifyClaimResponse(BaseModel):
         ctx = get_context()
         if ctx is None:
             return self
-        result = assess_request_context(
-            evidence_id=self.verification_id,
-            verification={"verdict": self.verdict},
-            context=ctx,
-        )
+        result = assess_request_context(evidence_id=self.verification_id, verification={"verdict": self.verdict}, context=ctx)
         self.dpie_transition_id = result["transition_id"]
         self.dpie_property = result["property"]
         self.dpie_state = result["state"]
@@ -156,13 +154,11 @@ class VerifyClaimResponse(BaseModel):
         self.dpie_fail_closed = result["fail_closed"]
         return self
 
-
 class ErrorResponse(BaseModel):
     error: str
     detail: str
     request_id: Optional[str] = None
     field: Optional[str] = None
-
 
 class HealthResponse(BaseModel):
     status: str
