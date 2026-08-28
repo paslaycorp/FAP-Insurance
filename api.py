@@ -142,9 +142,9 @@ async def _process_single_claim(req: VerifyClaimRequest, fap_client: FapCoreClie
         envelope.confidence_score = fusion_result.confidence
         envelope.verdict = fusion_result.verdict
 
-        # DPIE is evaluated BEFORE the audit record is sealed. This makes the
-        # downstream assurance decision part of the immutable evidence record,
-        # rather than a post-hoc annotation.
+        # Evaluate the downstream assurance boundary before sealing the audit
+        # record. The EvidenceEnvelope serializes the same determination into
+        # the immutable hash-chain payload.
         dpie_context = get_context()
         dpie_result = None
         if dpie_context is not None:
@@ -153,7 +153,6 @@ async def _process_single_claim(req: VerifyClaimRequest, fap_client: FapCoreClie
                 verification={"verdict": envelope.verdict},
                 context=dpie_context,
             )
-            envelope.audit_metadata = {"dpie": dpie_result}
 
         elapsed_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
         report_html = AdjusterReport(claim_id=req.claim_id, policy_number=req.policy_number, adjuster_notes=req.adjuster_notes, fap_result=fap_result, request_data=req.model_dump()).to_html()
@@ -161,8 +160,9 @@ async def _process_single_claim(req: VerifyClaimRequest, fap_client: FapCoreClie
         envelope.audit_record_hash = audit_record.record_hash
         envelope.fap_core_response = fap_result
 
-        # Fail closed after sealing the determination. A denied/quarantined
-        # downstream use is never returned as a successful verification.
+        # A blocked downstream use is never returned as a successful
+        # verification. The audit record is sealed first so the denial itself
+        # is reconstructable.
         if dpie_result and dpie_result["decision"] in {"DENY", "QUARANTINE"}:
             status_code = 403 if dpie_result["decision"] == "DENY" else 409
             raise HTTPException(
