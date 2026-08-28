@@ -16,21 +16,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Optional
 
-from dpie_assurance import (
-    AssuranceContext,
-    AssuranceState,
-    AssuranceProperty,
-    RuleBinding,
-    State,
-    Transition,
-    evaluate_transition,
-)
+from dpie_assurance import AssuranceContext, AssuranceState, Decision, RuleBinding, State, Transition, evaluate_transition
 
 
 @dataclass(frozen=True)
 class FAPDecisionContext:
     """Context governing the downstream use of a verified claim."""
-
     identity: Optional[str]
     purpose: str
     scope: Optional[str]
@@ -42,43 +33,16 @@ class FAPDecisionContext:
     consequence: str = "standard"
 
 
-def _source_state(
-    evidence_id: str,
-    verification: Mapping[str, Any],
-    context: FAPDecisionContext,
-) -> State:
+def _source_state(evidence_id: str, verification: Mapping[str, Any], context: FAPDecisionContext) -> State:
     """Translate a FAP verification into a DPIE source state."""
-
     verdict = str(verification.get("verdict", "UNKNOWN")).upper()
-    source_integrity = (
-        AssuranceState.VALID
-        if verdict in {"STRICT", "PROBABLE"}
-        else AssuranceState.UNKNOWN
-    )
-
-    rule = RuleBinding(
-        context.rule_id,
-        context.rule_version,
-        context.rule_authority,
-        context.jurisdiction,
-        context.at,
-    )
+    source_value = AssuranceState.VALID if verdict in {"STRICT", "PROBABLE"} else AssuranceState.UNKNOWN
+    rule = RuleBinding(context.rule_id, context.rule_version, context.rule_authority, context.jurisdiction, context.at)
     return State(
-        state_id=evidence_id,
-        properties={
-            "integrity": source_integrity,
-            "provenance": source_integrity,
-            "evidence": source_integrity,
-            "applicability": source_integrity,
-        },
-        context=AssuranceContext(
-            identity=context.identity,
-            purpose=context.purpose,
-            scope=context.scope,
-            jurisdiction=context.jurisdiction,
-            at=context.at,
-        ),
-        rule=rule,
+        evidence_id,
+        {"integrity": source_value, "provenance": source_value, "evidence": source_value, "applicability": source_value},
+        AssuranceContext(context.identity, context.purpose, context.scope, context.jurisdiction, context.at),
+        rule,
     )
 
 
@@ -93,10 +57,9 @@ def assess_fap_transition(
 ) -> Mapping[str, Any]:
     """Evaluate whether FAP assurance may support the target decision.
 
-    `preservation_proof` must be a DPIE PreservationProof for a material
-    applicability transition. Omitting it is intentionally fail-closed.
+    Omission of a preservation proof is intentionally fail-closed for a
+    material applicability transition.
     """
-
     source = _source_state(evidence_id, verification, source_context)
     target_rule = RuleBinding(
         target_context.rule_id,
@@ -106,22 +69,12 @@ def assess_fap_transition(
         target_context.at,
     )
     target = State(
-        state_id=f"{evidence_id}:target",
-        properties={"applicability": AssuranceState.PRESERVED},
-        context=AssuranceContext(
-            identity=target_context.identity,
-            purpose=target_context.purpose,
-            scope=target_context.scope,
-            jurisdiction=target_context.jurisdiction,
-            at=target_context.at,
-        ),
-        rule=target_rule,
+        f"{evidence_id}:target",
+        {"applicability": AssuranceState.PRESERVED},
+        AssuranceContext(target_context.identity, target_context.purpose, target_context.scope, target_context.jurisdiction, target_context.at),
+        target_rule,
     )
-
-    preservation = {}
-    if preservation_proof is not None:
-        preservation["applicability"] = preservation_proof
-
+    preservation = {"applicability": preservation_proof} if preservation_proof is not None else {}
     transition = Transition(
         transition_id=transition_id,
         source=source,
@@ -129,12 +82,7 @@ def assess_fap_transition(
         material_properties=frozenset({"applicability"}),
         preservation=preservation,
     )
-    result = evaluate_transition(
-        transition,
-        "applicability",
-        consequence=target_context.consequence,
-    )
-
+    result = evaluate_transition(transition, "applicability", consequence=target_context.consequence)
     return {
         "transition_id": result.transition_id,
         "property": result.property_name,
@@ -145,5 +93,5 @@ def assess_fap_transition(
         "rule_id": result.rule_id,
         "rule_version": result.rule_version,
         "source_evidence_id": evidence_id,
-        "fail_closed": result.decision in {result.decision.DENY, result.decision.QUARANTINE},
+        "fail_closed": result.decision in {Decision.DENY, Decision.QUARANTINE},
     }
