@@ -14,7 +14,7 @@ class Settings:
     PORT: int = int(os.getenv("FAP_PORT", "8000"))
     WORKERS: int = int(os.getenv("FAP_WORKERS", "1"))
     API_KEY_HEADER: str = "X-API-Key"
-    API_KEY: str = os.getenv("FAP_API_KEY", "dev-fap-key-7a3f9e2d-8842-4b91-b3c7-1e8d6f5a2c09")
+    API_KEY: str = os.getenv("FAP_API_KEY", "")
     RATE_LIMIT_PILOT: str = "100/minute"
     RATE_LIMIT_PROD: str = "1000/minute"
     RATE_LIMIT_BURST: str = "10/second"
