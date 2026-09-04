@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, master]
 
+env:
+  FAP_API_KEY: ci-test-key
+  FAP_ENV: test
+
 jobs:
   test:
     runs-on: ubuntu-latest
