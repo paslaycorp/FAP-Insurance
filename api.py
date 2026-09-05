@@ -204,15 +204,16 @@ async def verify_batch(request: Request, requests: List[VerifyClaimRequest], api
             results.append({"claim_id": req.claim_id, "status": "ok", "result": result.model_dump()})
         except HTTPException as exc:
             results.append({"claim_id": req.claim_id, "status": "blocked", "status_code": exc.status_code, "detail": exc.detail})
-        except Exception as exc:
-            results.append({"claim_id": req.claim_id, "status": "error", "detail": str(exc)})
+        except Exception:
+            log.error("verify.batch_error", request_id=req_id, claim_id=req.claim_id, traceback=traceback.format_exc())
+            results.append({"claim_id": req.claim_id, "status": "error", "detail": "Verification failed."})
         finally:
             clear_context()
     return {"processed": len(results), "results": results}
 
 
 @app.get("/audit/report/{request_id}", response_class=HTMLResponse)
-async def get_audit_report(request_id: str):
+async def get_audit_report(request_id: str, api_key: str = Depends(verify_api_key)):
     record = get_by_request_id(request_id)
     if not record:
         raise HTTPException(status_code=404, detail="Audit record not found.")
@@ -220,18 +221,18 @@ async def get_audit_report(request_id: str):
 
 
 @app.get("/audit/claim/{claim_id}")
-async def get_claim_history(claim_id: str):
+async def get_claim_history(claim_id: str, api_key: str = Depends(verify_api_key)):
     records = get_by_claim_id(claim_id)
     return {"claim_id": claim_id, "total_verifications": len(records), "records": [r.to_dict() for r in records]}
 
 
 @app.get("/audit/integrity")
-async def audit_integrity():
+async def audit_integrity(api_key: str = Depends(verify_api_key)):
     return get_chain_integrity()
 
 
 @app.get("/audit/evidence/{evidence_id}")
-async def get_evidence(evidence_id: str):
+async def get_evidence(evidence_id: str, api_key: str = Depends(verify_api_key)):
     record = get_by_evidence_id(evidence_id)
     if not record:
         raise HTTPException(status_code=404, detail="Evidence not found.")
@@ -239,7 +240,7 @@ async def get_evidence(evidence_id: str):
 
 
 @app.get("/report/{verification_id}", response_class=HTMLResponse)
-async def get_report(verification_id: str):
+async def get_report(verification_id: str, api_key: str = Depends(verify_api_key)):
     return HTMLResponse(content=f"<h1>Legacy endpoint</h1><p>Use /audit/report/{{request_id}}</p><p>ID: {verification_id}</p>")
 
 
