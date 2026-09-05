@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True, slots=True)
 class Settings:
     SERVICE_NAME: str = "fap-insurance"
@@ -18,6 +17,10 @@ class Settings:
     RATE_LIMIT_BATCH: str = "10/minute"
     RATE_LIMIT_DEMO: str = "10/second"
     FAP_CORE_URL: str = os.getenv("FAP_CORE_URL", "http://localhost:8000")
+    FAP_CORE_API_KEY: str = os.getenv("FAP_CORE_API_KEY", "")
+    FAP_CORE_SERVICE_ID: str = os.getenv("FAP_CORE_SERVICE_ID", "fap-core")
+    FAP_CORE_PUBLIC_KEY: str = os.getenv("FAP_CORE_PUBLIC_KEY", "")
+    EPM_SERVICE_ID: str = os.getenv("EPM_SERVICE_ID", "fap-insurance")
     FAP_CORE_TIMEOUT: float = 30.0
     FAP_CORE_CACHE_TTL: int = 300
     NOAA_SWPC_URL: str = "https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.json"
@@ -30,10 +33,6 @@ class Settings:
     LOG_JSON: bool = os.getenv("FAP_LOG_JSON", "true").lower() == "true"
     AUDIT_DB_PATH: str = os.getenv("FAP_AUDIT_DB", "fap_audit.db")
     AUDIT_LOCK_TIMEOUT_SECONDS: float = 5.0
-
     @property
-    def is_production(self) -> bool:
-        return self.ENV == "production"
-
-
+    def is_production(self) -> bool: return self.ENV == "production"
 SETTINGS = Settings()
