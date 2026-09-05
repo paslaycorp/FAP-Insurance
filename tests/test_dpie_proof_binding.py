@@ -73,7 +73,12 @@ def test_material_preservation_requires_every_context_binding(missing_binding):
 
     assert result.state is AssuranceState.INVALIDATED
     assert result.decision is Decision.QUARANTINE
-    assert result.failure is FailureCode.PRESERVATION_UNESTABLISHED
+    expected_failure = (
+        FailureCode.MISAPPLICATION
+        if missing_binding in {"target_purpose", "target_scope"}
+        else FailureCode.PRESERVATION_UNESTABLISHED
+    )
+    assert result.failure is expected_failure
 
 
 def test_fully_bound_preservation_is_authorized():
