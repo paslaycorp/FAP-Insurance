@@ -35,6 +35,12 @@ def proof(transition_id="T1", *, target, **overrides):
         authority=target.rule.authority,
         evidence_refs=("E1",),
         valid=True,
+        source_purpose="claim-adjustment",
+        target_purpose=target.context.purpose,
+        source_scope="auto",
+        target_scope=target.context.scope,
+        source_jurisdiction="TX",
+        target_jurisdiction=target.context.jurisdiction,
     )
     values.update(overrides)
     return PreservationProof(**values)
@@ -151,3 +157,19 @@ def test_non_material_transition_does_not_require_preservation_proof():
     result = evaluate_transition(Transition("T1", source, target, frozenset()), "applicability")
     assert result.state is AssuranceState.PRESERVED
     assert result.decision is Decision.AUTHORIZED
+
+
+def test_missing_context_binding_cannot_establish_preservation():
+    source, target = state(), state("Q2")
+    result = evaluate_transition(
+        Transition(
+            "T1",
+            source,
+            target,
+            frozenset({"applicability"}),
+            {"applicability": proof(target=target, target_scope=None)},
+        ),
+        "applicability",
+    )
+    assert result.state is AssuranceState.INVALIDATED
+    assert result.failure is FailureCode.PRESERVATION_UNESTABLISHED
