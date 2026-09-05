@@ -31,33 +31,7 @@ jobs:
         run: python -m compileall -q .
       - name: Import API
         run: python -c "from api import app; print(app.title)"
-      - name: API health
-        run: pytest -q tests/test_api.py -k test_health --tb=short
-      - name: API auth
-        run: pytest -q tests/test_api.py -k 'verify_missing_key or verify_invalid_key' --tb=short
-      - name: API claim validation
-        run: pytest -q tests/test_api.py -k 'claim_id' --tb=short
-      - name: API media validation
-        run: pytest -q tests/test_api.py -k 'media_hash' --tb=short
-      - name: API timestamp and witnesses
-        run: pytest -q tests/test_api.py -k 'timestamp or witness' --tb=short
-      - name: API verdict and demo
-        run: pytest -q tests/test_api.py -k 'verdict_structure or demo or error_response' --tb=short
-      - name: DPIE assurance tests
-        run: pytest -q tests/test_dpie_assurance.py --tb=short
-      - name: DPIE production invariants
-        run: pytest -q tests/test_dpie_production_invariants.py --tb=short
-      - name: DPIE audit tests
-        run: pytest -q tests/test_dpie_audit_boundary.py --tb=short
-      - name: DPIE composition tests
-        run: pytest -q tests/test_dpie_composition.py --tb=short
-      - name: DPIE FAP boundary tests
-        run: pytest -q tests/test_dpie_fap_boundary.py --tb=short
-      - name: DPIE red-team tests
-        run: pytest -q tests/test_dpie_red_team.py --tb=short
-      - name: DPIE smoke test
-        run: pytest -q tests/test_dpie_smoke.py --tb=short
-      - name: Full test suite
+      - name: Run complete test suite
         run: pytest -q --tb=short
 
   build:
@@ -76,7 +50,7 @@ jobs:
       - name: Build image
         run: docker build --pull -t fap-insurance:${{ github.sha }} .
       - name: Start container
-        run: docker run -d --name fap-insurance -p 8000:8000 fap-insurance:${{ github.sha }}
+        run: docker run -d --name fap-insurance -p 8000:8000 -e FAP_ENV=test -e FAP_API_KEY=ci-test-key fap-insurance:${{ github.sha }}
       - name: Container health
         run: |
           for i in $(seq 1 30); do
