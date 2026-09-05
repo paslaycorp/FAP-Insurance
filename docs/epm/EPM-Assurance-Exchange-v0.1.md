@@ -1,7 +1,7 @@
 # EPM Assurance Exchange v0.1
 ## Reciprocal machine-to-machine assurance contract
 
-**Status:** Architecture specification — normative draft  
+**Status:** Architecture specification — implementation baseline  
 **Scope:** EPM ↔ trusted verification-engine communication  
 **Initial peer:** FAP-Core  
 **Transport:** TLS; production target includes authenticated service identity/mTLS  
@@ -37,7 +37,7 @@ request_id
 nonce
 request_digest
 claim_id
- evidence_id
+evidence_id
 media_hash
 timestamp_claimed
 purpose
@@ -51,7 +51,7 @@ requested_at
 requester_service_id
 ```
 
-`request_digest` MUST be computed over a canonical representation of all security-relevant request fields.
+`request_digest` MUST be computed over a canonical representation of all security-relevant request fields **excluding `request_digest` itself**.
 
 `nonce` MUST be unique for the request lifetime and retained sufficiently to reject replay.
 
@@ -79,7 +79,7 @@ responder_service_id
 signature
 ```
 
-`response_digest` MUST cover the canonical response payload excluding the signature field itself.
+`response_digest` MUST cover the canonical response payload **excluding both `response_digest` and `signature`**. This avoids circular hashing while binding every other security-relevant response field.
 
 The response MUST carry the original `request_digest` and `nonce`, allowing the requester to verify correlation without trusting an intermediary's routing metadata.
 
