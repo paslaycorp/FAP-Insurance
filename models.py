@@ -12,7 +12,7 @@ from slowapi import Limiter
 from slowapi.extension import _rate_limit_exceeded_handler
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from dpie_context import RequestAssuranceContext, set_context
+from dpie_context import RequestAssuranceContext
 
 _original_limiter_limit = Limiter.limit
 
@@ -98,20 +98,25 @@ class VerifyClaimRequest(BaseModel):
             raise ValueError("witness_ids must contain 0-20 non-blank values.")
         return [x.strip() for x in v]
 
-    @model_validator(mode="after")
-    def _set_dpie_context(self) -> "VerifyClaimRequest":
+    def dpie_context(self) -> RequestAssuranceContext:
+        """Build request assurance context without mutating request-local state."""
         source_purpose, source_scope, source_jurisdiction = "claim-verification", "claim", "TX"
-        set_context(RequestAssuranceContext(
-            evidence_id=None, source_purpose=source_purpose, source_scope=source_scope,
-            source_jurisdiction=source_jurisdiction, source_at=self.timestamp_claimed,
+        return RequestAssuranceContext(
+            evidence_id=None,
+            source_purpose=source_purpose,
+            source_scope=source_scope,
+            source_jurisdiction=source_jurisdiction,
+            source_at=self.timestamp_claimed,
             target_purpose=self.downstream_purpose or source_purpose,
             target_scope=self.downstream_scope or source_scope,
             target_jurisdiction=self.downstream_jurisdiction or source_jurisdiction,
             target_at=self.downstream_at or self.timestamp_claimed,
-            rule_id=self.downstream_rule_id or "carrier-default", rule_version=self.downstream_rule_version or "1",
+            rule_id=self.downstream_rule_id or "carrier-default",
+            rule_version=self.downstream_rule_version or "1",
             rule_authority=self.downstream_rule_authority or "carrier-authority",
-            consequence=self.downstream_consequence, preservation_proof=self.preservation_proof))
-        return self
+            consequence=self.downstream_consequence,
+            preservation_proof=self.preservation_proof,
+        )
 
 
 class VerifyClaimResponse(BaseModel):

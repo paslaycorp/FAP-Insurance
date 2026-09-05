@@ -62,6 +62,12 @@ def test_valid_preservation_proof_allows_property_to_cross_boundary():
         evidence_refs=("E1", "E2"),
         valid=True,
         reason="Policy scope explicitly permits the transition.",
+        source_purpose=source.context.purpose,
+        target_purpose=target.context.purpose,
+        source_scope=source.context.scope,
+        target_scope=target.context.scope,
+        source_jurisdiction=source.context.jurisdiction,
+        target_jurisdiction=target.context.jurisdiction,
     )
     result = evaluate_transition(
         Transition(

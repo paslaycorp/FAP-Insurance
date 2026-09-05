@@ -12,7 +12,7 @@ import pytest
 from fastapi import HTTPException
 
 import api
-from dpie_context import clear_context
+from dpie_context import clear_context, set_context
 from models import VerifyClaimRequest
 
 
@@ -68,6 +68,7 @@ async def test_verify_material_context_change_is_blocked_and_audited(monkeypatch
     )
 
     try:
+        set_context(req.dpie_context())
         with pytest.raises(HTTPException) as exc_info:
             await api._process_single_claim(req, FakeFapClient(), FakeReality(), FakeFusion(), "REQ-001")
 
