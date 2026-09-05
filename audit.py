@@ -264,14 +264,28 @@ def get_chain_integrity() -> Dict[str, Any]:
     head_hash: Optional[str] = None
 
     for row in rows:
+        stored_previous = row["previous_hash"]
+        expected_previous = prev_hash
         expected = _compute_hash(
             row["evidence_id"], row["claim_id"], row["created_at"], row["verdict"],
             row["confidence_score"], row["components_json"], row["reality_anchor_json"],
             row["fap_core_response_json"], row["engine_version"], row["policy_version"],
-            row["oracle_versions"], prev_hash, row["replay_inputs_hash"], row["envelope_json"],
+            row["oracle_versions"], expected_previous, row["replay_inputs_hash"], row["envelope_json"],
         )
+        if stored_previous != expected_previous:
+            breaks.append({
+                "evidence_id": row["evidence_id"],
+                "type": "previous_hash_mismatch",
+                "expected_previous_hash": expected_previous,
+                "actual_previous_hash": stored_previous,
+            })
         if expected != row["record_hash"]:
-            breaks.append({"evidence_id": row["evidence_id"], "expected_hash": expected, "actual_hash": row["record_hash"]})
+            breaks.append({
+                "evidence_id": row["evidence_id"],
+                "type": "record_hash_mismatch",
+                "expected_hash": expected,
+                "actual_hash": row["record_hash"],
+            })
         prev_hash = row["record_hash"]
         head_hash = row["record_hash"]
 
