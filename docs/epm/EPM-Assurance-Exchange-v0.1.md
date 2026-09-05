@@ -1,7 +1,7 @@
 # EPM Assurance Exchange v0.1
 ## Reciprocal machine-to-machine assurance contract
 
-**Status:** Architecture specification — normative draft  
+**Status:** Architecture specification — implementation baseline  
 **Scope:** EPM ↔ trusted verification-engine communication  
 **Initial peer:** FAP-Core  
 **Transport:** TLS; production target includes authenticated service identity/mTLS  
@@ -37,7 +37,7 @@ request_id
 nonce
 request_digest
 claim_id
- evidence_id
+evidence_id
 media_hash
 timestamp_claimed
 purpose
@@ -49,9 +49,12 @@ authority
 consequence
 requested_at
 requester_service_id
+verification_input_digest
 ```
 
-`request_digest` MUST be computed over a canonical representation of all security-relevant request fields.
+`verification_input_digest` MUST be the SHA-256 digest of the canonical representation of the **complete downstream verification request**, including security-relevant defaults and null values that are actually transmitted to the verification engine.
+
+`request_digest` MUST then be computed over a canonical representation of all security-relevant Assurance Request fields **excluding `request_digest` itself**. This creates a two-stage binding: EPM context binds the exact verification-input digest, while the responder independently recomputes that digest from the request it actually received.
 
 `nonce` MUST be unique for the request lifetime and retained sufficiently to reject replay.
 
@@ -79,7 +82,7 @@ responder_service_id
 signature
 ```
 
-`response_digest` MUST cover the canonical response payload excluding the signature field itself.
+`response_digest` MUST cover the canonical response payload **excluding both `response_digest` and `signature`**. This avoids circular hashing while binding every other security-relevant response field.
 
 The response MUST carry the original `request_digest` and `nonce`, allowing the requester to verify correlation without trusting an intermediary's routing metadata.
 
@@ -92,13 +95,14 @@ EPM MUST verify the response in this order or an equivalent fail-closed order:
 3. Replay status.
 4. Request digest equality.
 5. Evidence binding.
-6. Response signature.
-7. Response digest.
-8. Engine identity/version.
-9. Policy identity/version.
-10. Temporal validity.
-11. Result semantics and failure state.
-12. EPM applicability and transition rules.
+6. Verification-input digest correspondence.
+7. Response signature.
+8. Response digest.
+9. Engine identity/version.
+10. Policy identity/version.
+11. Temporal validity.
+12. Result semantics and failure state.
+13. EPM applicability and transition rules.
 
 Successful cryptographic verification MUST NOT bypass the final EPM assurance evaluation.
 
@@ -145,6 +149,7 @@ At minimum, the audit event SHOULD bind:
 
 - request ID;
 - request digest;
+- verification-input digest;
 - response digest, when present;
 - evidence ID;
 - peer service identity;
@@ -158,7 +163,7 @@ At minimum, the audit event SHOULD bind:
 
 The current FAP-Core `/verify` bearer-auth contract is a separate transport/application concern from this exchange. EPM MUST NOT silently weaken that contract to make integration work.
 
-The implementation phase MUST establish an explicit service credential/identity model and then add application-level attestation binding.
+Phase 1 uses an explicitly configured service credential while retaining application-level signed attestation. Phase 2 may add mTLS/service identity without removing the application signature.
 
 ## 11. Security invariant
 

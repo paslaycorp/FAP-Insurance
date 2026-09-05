@@ -6,6 +6,7 @@ httpx==0.28.0
 cachetools==5.5.0
 slowapi==0.1.9
 structlog==25.2.0
+cryptography==45.0.6
 
 # Testing
 pytest==8.3.0
