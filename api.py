@@ -53,7 +53,11 @@ app.add_middleware(CORSMiddleware, allow_origins=[] if SETTINGS.is_production el
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        req_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        supplied_id = request.headers.get("X-Request-ID")
+        try:
+            req_id = str(uuid.UUID(supplied_id)) if supplied_id else str(uuid.uuid4())
+        except (ValueError, AttributeError):
+            req_id = str(uuid.uuid4())
         set_request_id(req_id)
         request.state.request_id = req_id
         start = datetime.now(timezone.utc)
@@ -92,7 +96,8 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 
 @app.exception_handler(ValueError)
 async def value_handler(request: Request, exc: ValueError):
-    return JSONResponse(status_code=400, content=_err("BAD_REQUEST", str(exc), getattr(request.state, "request_id", None)))
+    log.error("http.value_error", error=str(exc), request_id=getattr(request.state, "request_id", None), traceback=traceback.format_exc())
+    return JSONResponse(status_code=400, content=_err("BAD_REQUEST", "The request could not be processed.", getattr(request.state, "request_id", None)))
 
 
 @app.exception_handler(FapCoreUnavailable)
