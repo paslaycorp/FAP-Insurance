@@ -172,4 +172,5 @@ def test_missing_context_binding_cannot_establish_preservation():
         "applicability",
     )
     assert result.state is AssuranceState.INVALIDATED
-    assert result.failure is FailureCode.PRESERVATION_UNESTABLISHED
+    assert result.failure is FailureCode.MISAPPLICATION
+    assert "explicit binding" in result.reason
