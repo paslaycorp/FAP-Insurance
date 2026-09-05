@@ -1,13 +1,16 @@
 """FAP-Insurance external oracle adapters."""
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import httpx
 from cachetools import TTLCache
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from config import SETTINGS
+from epm_exchange import AssuranceAttestation, AssuranceRequest, ReplayGuard, digest_hex, verify_attestation
 from logger import log
 
 _solar_cache: TTLCache = TTLCache(maxsize=128, ttl=SETTINGS.SOLAR_CACHE_TTL_SECONDS)
@@ -77,14 +80,13 @@ def weather_confidence(claim_temp_f: Optional[float], claim_conditions: Optional
 class FapCoreUnavailable(RuntimeError): pass
 
 class FapCoreClient:
-    """Transport adapter for FAP-Core, including Phase-1 bearer authentication."""
+    """Transport adapter for FAP-Core with Phase-1 bearer auth and EPM attestation verification."""
     def __init__(self, client: httpx.AsyncClient): self.client = client
 
     async def verify(self, base_url: str, payload: Dict[str, Any], assurance_header: Optional[str] = None) -> Dict[str, Any]:
         try:
-            headers = {}
             if not SETTINGS.FAP_CORE_API_KEY: raise RuntimeError("FAP-Core service credential is not configured")
-            headers["Authorization"] = f"Bearer {SETTINGS.FAP_CORE_API_KEY}"
+            headers = {"Authorization": f"Bearer {SETTINGS.FAP_CORE_API_KEY}"}
             if assurance_header: headers["X-EPM-Assurance"] = assurance_header
             response = await self.client.post(f"{base_url.rstrip('/')}/verify", json=payload, headers=headers)
             response.raise_for_status(); data = response.json()
@@ -92,7 +94,25 @@ class FapCoreClient:
             return data
         except Exception as exc: raise FapCoreUnavailable(str(exc)) from exc
 
+    async def verify_assured(self, base_url: str, payload: Dict[str, Any], *, claim_id: str, evidence_id: str, timestamp_claimed: datetime, purpose: str, scope: str, jurisdiction: str, rule_id: str, rule_version: str, authority: str, consequence: str) -> Dict[str, Any]:
+        request = AssuranceRequest.create(claim_id=claim_id, evidence_id=evidence_id, media_hash=payload["media_hash"], timestamp_claimed=timestamp_claimed, purpose=purpose, scope=scope, jurisdiction=jurisdiction, rule_id=rule_id, rule_version=rule_version, authority=authority, consequence=consequence, requester_service_id=SETTINGS.EPM_SERVICE_ID, verification_input_digest=digest_hex(payload))
+        encoded = base64.urlsafe_b64encode(json.dumps(request.payload(), default=lambda x: x.isoformat() if isinstance(x, datetime) else x, ensure_ascii=False, separators=(",", ":")).encode()).rstrip(b"=").decode()
+        data = await self.verify(base_url, payload, assurance_header=encoded)
+        raw = data.get("epm_attestation")
+        if not isinstance(raw, dict): raise FapCoreUnavailable("FAP-Core did not return an EPM attestation")
+        try:
+            processed = datetime.fromisoformat(raw["processed_at"].replace("Z", "+00:00"))
+            attestation = AssuranceAttestation(raw["request_id"], raw["nonce"], raw["request_digest"], raw["response_digest"], raw["evidence_id"], raw["artifact_id"], raw["engine_id"], raw["engine_version"], raw["policy_id"], raw["policy_version"], tuple(raw.get("oracle_versions", [])), processed, raw["result"], raw.get("confidence"), raw.get("failure_state"), raw["responder_service_id"], raw["signature"])
+            if not SETTINGS.FAP_CORE_PUBLIC_KEY: raise ValueError("FAP-Core public attestation key is not configured")
+            key = Ed25519PublicKey.from_public_bytes(base64.urlsafe_b64decode(SETTINGS.FAP_CORE_PUBLIC_KEY + "=" * (-len(SETTINGS.FAP_CORE_PUBLIC_KEY) % 4)))
+            verify_attestation(request, attestation, trusted_keys={SETTINGS.FAP_CORE_SERVICE_ID: key}, replay_guard=_FAP_REPLAY_GUARD, expected_engine_id=SETTINGS.FAP_CORE_SERVICE_ID, expected_evidence_id=evidence_id)
+        except Exception as exc: raise FapCoreUnavailable("FAP-Core attestation verification failed") from exc
+        return data
+
     async def health(self, base_url: str) -> bool:
         try:
             response = await self.client.get(f"{base_url.rstrip('/')}/health"); response.raise_for_status(); return True
         except Exception: return False
+
+_FAP_REPLAY_GUARD = ReplayGuard()
+import json
