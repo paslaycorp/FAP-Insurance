@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -98,9 +99,7 @@ def test_tampered_response_field_fails_signature():
     request = make_request()
     signer = AttestationSigner.generate("fap-core")
     attestation = make_attestation(request, signer)
-    tampered = attestation.__class__(
-        **{**attestation.__dict__, "result": "STRICT-TAMPERED"}
-    )
+    tampered = replace(attestation, result="STRICT-TAMPERED")
     with pytest.raises(BindingError):
         verify_attestation(
             request,
@@ -177,9 +176,7 @@ def test_engine_and_policy_identity_are_explicitly_bound():
 
 def test_request_digest_tampering_is_detected_before_peer_use():
     request = make_request()
-    tampered = request.__class__(
-        **{**request.__dict__, "purpose": "different-purpose"}
-    )
+    tampered = replace(request, purpose="different-purpose")
     with pytest.raises(BindingError):
         tampered.verify_digest()
 
