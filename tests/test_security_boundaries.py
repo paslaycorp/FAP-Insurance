@@ -1,7 +1,12 @@
 from datetime import datetime, timezone
 
+import pytest
+from fastapi import HTTPException
+
+from auth import verify_api_key
 from dpie_context import clear_context, get_context
 from models import VerifyClaimRequest
+from settings import SETTINGS
 
 
 def test_request_model_validation_is_side_effect_free():
@@ -39,3 +44,12 @@ def test_request_model_builds_explicit_assurance_context():
     assert context.target_jurisdiction == "LA"
     assert context.consequence == "critical"
     assert get_context() is None
+
+
+@pytest.mark.asyncio
+async def test_missing_server_api_key_fails_closed(monkeypatch):
+    monkeypatch.setattr(SETTINGS, "API_KEY", "")
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_api_key("any-client-key")
+    assert exc_info.value.status_code == 403
+    assert "Invalid API key" in exc_info.value.detail
