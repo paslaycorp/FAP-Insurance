@@ -20,8 +20,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from audit import get_by_claim_id, get_by_evidence_id, get_by_request_id, get_chain_integrity, store_verification
 from auth import verify_api_key
 from config import config
+from dpie_context import clear_context, get_context, set_context
 from dpie_runtime import assess_request_context
-from dpie_context import get_context
 from evidence import EvidenceEnvelope, OracleObservation
 from fusion import EvidenceFusionEngine
 from logger import clear_request_id, log, set_request_id
@@ -53,7 +53,11 @@ app.add_middleware(CORSMiddleware, allow_origins=[] if SETTINGS.is_production el
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        req_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        supplied_id = request.headers.get("X-Request-ID")
+        try:
+            req_id = str(uuid.UUID(supplied_id)) if supplied_id else str(uuid.uuid4())
+        except (ValueError, AttributeError):
+            req_id = str(uuid.uuid4())
         set_request_id(req_id)
         request.state.request_id = req_id
         start = datetime.now(timezone.utc)
@@ -92,7 +96,8 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 
 @app.exception_handler(ValueError)
 async def value_handler(request: Request, exc: ValueError):
-    return JSONResponse(status_code=400, content=_err("BAD_REQUEST", str(exc), getattr(request.state, "request_id", None)))
+    log.error("http.value_error", error=str(exc), request_id=getattr(request.state, "request_id", None), traceback=traceback.format_exc())
+    return JSONResponse(status_code=400, content=_err("BAD_REQUEST", "The request could not be processed.", getattr(request.state, "request_id", None)))
 
 
 @app.exception_handler(FapCoreUnavailable)
@@ -142,9 +147,6 @@ async def _process_single_claim(req: VerifyClaimRequest, fap_client: FapCoreClie
         envelope.confidence_score = fusion_result.confidence
         envelope.verdict = fusion_result.verdict
 
-        # Evaluate the downstream assurance boundary before sealing the audit
-        # record. The EvidenceEnvelope serializes the same determination into
-        # the immutable hash-chain payload.
         dpie_context = get_context()
         dpie_result = None
         if dpie_context is not None:
@@ -160,9 +162,6 @@ async def _process_single_claim(req: VerifyClaimRequest, fap_client: FapCoreClie
         envelope.audit_record_hash = audit_record.record_hash
         envelope.fap_core_response = fap_result
 
-        # A blocked downstream use is never returned as a successful
-        # verification. The audit record is sealed first so the denial itself
-        # is reconstructable.
         if dpie_result and dpie_result["decision"] in {"DENY", "QUARANTINE"}:
             status_code = 403 if dpie_result["decision"] == "DENY" else 409
             raise HTTPException(
@@ -180,7 +179,6 @@ async def _process_single_claim(req: VerifyClaimRequest, fap_client: FapCoreClie
 
         return VerifyClaimResponse(claim_id=req.claim_id, verification_id=audit_record.evidence_id, verdict=envelope.verdict, verdict_label=_map_verdict(envelope.verdict), score=round(envelope.confidence_score, 4), confidence=round(float(fap_result.get("confidence", 0.0)), 4), components=fap_components, solar_flux_at_time=solar_result.flux, weather_match=fap_components.get("weather"), device_enrolled=bool(req.enrollment_id), witness_count=len(req.witness_ids), processing_time_ms=elapsed_ms, report_url=f"/audit/report/{req_id}", recommendation=_recommendation(envelope.verdict, envelope.confidence_score), timestamp_processed=datetime.now(timezone.utc), status=envelope.verdict, processed_at=datetime.now(timezone.utc), request_id=req_id)
     finally:
-        from dpie_context import clear_context
         clear_context()
 
 
@@ -193,6 +191,7 @@ async def health():
 @app.post("/verify", response_model=VerifyClaimResponse)
 @limiter.limit(SETTINGS.RATE_LIMIT_VERIFY)
 async def verify_claim(request: Request, req: VerifyClaimRequest, api_key: str = Depends(verify_api_key)):
+    set_context(req.dpie_context())
     return await _process_single_claim(req, app.state.fap_client, app.state.reality, app.state.fusion, request.state.request_id)
 
 
@@ -204,18 +203,22 @@ async def verify_batch(request: Request, requests: List[VerifyClaimRequest], api
     results = []
     for req in requests:
         req_id = str(uuid.uuid4())
+        set_context(req.dpie_context())
         try:
             result = await _process_single_claim(req, app.state.fap_client, app.state.reality, app.state.fusion, req_id)
             results.append({"claim_id": req.claim_id, "status": "ok", "result": result.model_dump()})
         except HTTPException as exc:
             results.append({"claim_id": req.claim_id, "status": "blocked", "status_code": exc.status_code, "detail": exc.detail})
-        except Exception as exc:
-            results.append({"claim_id": req.claim_id, "status": "error", "detail": str(exc)})
+        except Exception:
+            log.error("verify.batch_error", request_id=req_id, claim_id=req.claim_id, traceback=traceback.format_exc())
+            results.append({"claim_id": req.claim_id, "status": "error", "detail": "Verification failed."})
+        finally:
+            clear_context()
     return {"processed": len(results), "results": results}
 
 
 @app.get("/audit/report/{request_id}", response_class=HTMLResponse)
-async def get_audit_report(request_id: str):
+async def get_audit_report(request_id: str, api_key: str = Depends(verify_api_key)):
     record = get_by_request_id(request_id)
     if not record:
         raise HTTPException(status_code=404, detail="Audit record not found.")
@@ -223,18 +226,18 @@ async def get_audit_report(request_id: str):
 
 
 @app.get("/audit/claim/{claim_id}")
-async def get_claim_history(claim_id: str):
+async def get_claim_history(claim_id: str, api_key: str = Depends(verify_api_key)):
     records = get_by_claim_id(claim_id)
     return {"claim_id": claim_id, "total_verifications": len(records), "records": [r.to_dict() for r in records]}
 
 
 @app.get("/audit/integrity")
-async def audit_integrity():
+async def audit_integrity(api_key: str = Depends(verify_api_key)):
     return get_chain_integrity()
 
 
 @app.get("/audit/evidence/{evidence_id}")
-async def get_evidence(evidence_id: str):
+async def get_evidence(evidence_id: str, api_key: str = Depends(verify_api_key)):
     record = get_by_evidence_id(evidence_id)
     if not record:
         raise HTTPException(status_code=404, detail="Evidence not found.")
@@ -242,7 +245,7 @@ async def get_evidence(evidence_id: str):
 
 
 @app.get("/report/{verification_id}", response_class=HTMLResponse)
-async def get_report(verification_id: str):
+async def get_report(verification_id: str, api_key: str = Depends(verify_api_key)):
     return HTMLResponse(content=f"<h1>Legacy endpoint</h1><p>Use /audit/report/{{request_id}}</p><p>ID: {verification_id}</p>")
 
 

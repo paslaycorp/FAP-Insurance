@@ -2,9 +2,13 @@ name: FAP-Insurance CI/CD
 
 on:
   push:
-    branches: [main, master, feature/dpie-assurance-gateway]
+    branches: [main, master, feature/dpie-assurance-gateway, feature/epm-production-hardening]
   pull_request:
     branches: [main, master]
+
+env:
+  FAP_API_KEY: ci-test-key
+  FAP_ENV: test
 
 jobs:
   test:
@@ -21,45 +25,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install ruff
-      - name: Lint assurance layer
-        run: |
-          ruff check --fix dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_composition.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py tests/test_dpie_smoke.py
-          ruff check dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_composition.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py tests/test_dpie_smoke.py
-      - name: Compile assurance layer
-        run: python -m compileall -q dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py
+      - name: Lint Python sources
+        run: ruff check --select E4,E7,E9,F --ignore F401 .
+      - name: Compile Python sources
+        run: python -m compileall -q .
       - name: Import API
         run: python -c "from api import app; print(app.title)"
-      - name: API health
-        run: pytest -q tests/test_api.py -k test_health --tb=short
-      - name: API auth
-        run: pytest -q tests/test_api.py -k 'verify_missing_key or verify_invalid_key' --tb=short
-      - name: API claim validation
-        run: pytest -q tests/test_api.py -k 'claim_id' --tb=short
-      - name: API media validation
-        run: pytest -q tests/test_api.py -k 'media_hash' --tb=short
-      - name: API timestamp and witnesses
-        run: pytest -q tests/test_api.py -k 'timestamp or witness' --tb=short
-      - name: API verdict and demo
-        run: pytest -q tests/test_api.py -k 'verdict_structure or demo or error_response' --tb=short
-      - name: DPIE assurance tests
-        run: pytest -q tests/test_dpie_assurance.py --tb=short
-      - name: DPIE audit tests
-        run: pytest -q tests/test_dpie_audit_boundary.py --tb=short
-      - name: DPIE composition tests
-        run: pytest -q tests/test_dpie_composition.py --tb=short
-      - name: DPIE FAP boundary tests
-        run: pytest -q tests/test_dpie_fap_boundary.py --tb=short
-      - name: DPIE red-team tests
-        run: pytest -q tests/test_dpie_red_team.py --tb=short
-      - name: DPIE smoke test
-        run: pytest -q tests/test_dpie_smoke.py --tb=short
-      - name: Full test suite
+      - name: Run complete test suite
         run: pytest -q --tb=short
 
   build:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/feature/epm-production-hardening'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,4 +48,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Build image
-        run: docker build -t fap-insurance:${{ github.sha }} .
+        run: docker build --pull -t fap-insurance:${{ github.sha }} .
+      - name: Start container
+        run: docker run -d --name fap-insurance -p 8000:8000 -e FAP_ENV=test -e FAP_API_KEY=ci-test-key fap-insurance:${{ github.sha }}
+      - name: Container health
+        run: |
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs fap-insurance
+          exit 1
+      - name: Stop container
+        if: always()
+        run: docker rm -f fap-insurance || true

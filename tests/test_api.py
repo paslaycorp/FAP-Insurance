@@ -42,6 +42,16 @@ def test_verify_invalid_key(client):
     assert response.status_code == 403
 
 
+def test_audit_integrity_requires_key(client):
+    response = client.get("/audit/integrity")
+    assert response.status_code == 401
+
+
+def test_audit_evidence_requires_key(client):
+    response = client.get("/audit/evidence/does-not-exist")
+    assert response.status_code == 401
+
+
 def test_claim_id_stripped(client):
     response = client.post("/verify", json=_valid_payload(claim_id="  CLM-004892  "), headers=_headers())
     assert response.status_code == 200
@@ -65,7 +75,7 @@ def test_media_hash_wrong_length(client):
 
 
 def test_media_hash_non_hex(client):
-    response = client.post("/verify", json=_valid_payload(media_hash="g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), headers=_headers())
+    response = client.post("/verify", json=_valid_payload(media_hash="g3b0c44298fc1c149afbf4c8996fb92427AE41E4649B934CA495991B7852B855"), headers=_headers())
     assert response.status_code == 422
 
 
