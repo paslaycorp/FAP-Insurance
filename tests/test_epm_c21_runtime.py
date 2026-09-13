@@ -29,6 +29,25 @@ def test_epm_c21_runtime_rejects_later_available_evidence_without_temporal_bridg
     assert result["decision"] == "DENY"
     assert result["failure"] == "TEMPORAL_MISMATCH"
 
+def test_epm_c21_runtime_rejects_unvalidated_or_unjustified_temporal_bridge():
+    claim_time = datetime(2026,8,28,14,0,tzinfo=UTC)
+    later_available = datetime(2026,8,28,15,0,tzinfo=UTC)
+    for suffix, bridge in (
+        ("UNVALIDATED", {"basis":"retrospective-evidence-validity", "validated":False}),
+        ("NO-BASIS", {"basis":"", "validated":True}),
+        ("SCALAR", "bridge-present"),
+    ):
+        transition_id = f"C21-RUNTIME-{suffix}"
+        result = assess_fap_transition(
+            evidence_id=f"E-C21-{suffix}",
+            verification={"verdict":"STRICT","evidence_available_at":later_available,
+                          "temporal_bridge":bridge},
+            source_context=_context(claim_time), target_context=_context(claim_time),
+            transition_id=transition_id,
+            preservation_proof=_valid_preservation_proof(transition_id))
+        assert result["decision"] == "DENY", suffix
+        assert result["failure"] == "TEMPORAL_MISMATCH", suffix
+
 def test_epm_c21_runtime_allows_later_evidence_with_explicit_temporal_bridge():
     claim_time = datetime(2026,8,28,14,0,tzinfo=UTC)
     later_available = datetime(2026,8,28,15,0,tzinfo=UTC)
