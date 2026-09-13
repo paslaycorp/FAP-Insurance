@@ -19,7 +19,6 @@ from dpie_assurance import (
 )
 from dpie_composition import evaluate_composition
 from dpie_runtime import FAPDecisionContext, assess_fap_transition
-from governor import govern
 
 UTC = timezone.utc
 
