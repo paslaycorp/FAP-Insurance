@@ -114,8 +114,9 @@ def test_epm_c08_dependency_propagation_is_explicit():
         ),
         "applicability",
     )
-    assert unchanged.state is AssuranceState.INVALIDATED or unchanged.state is AssuranceState.PRESERVED
-    assert unchanged.decision in {Decision.AUTHORIZED, Decision.QUARANTINE}
+    assert unchanged.state is AssuranceState.PRESERVED
+    assert unchanged.decision is Decision.AUTHORIZED
+    assert unchanged.failure is FailureCode.NONE
 
 
 def test_epm_c14_authorization_does_not_follow_epistemic_validity_alone():
