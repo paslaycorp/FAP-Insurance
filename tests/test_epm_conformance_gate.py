@@ -18,6 +18,7 @@ from dpie_assurance import (
     evaluate_transition,
 )
 from dpie_composition import evaluate_composition
+from dpie_runtime import FAPDecisionContext, assess_fap_transition
 from governor import govern
 
 UTC = timezone.utc
@@ -63,8 +64,6 @@ def test_epm_c02_constraint_does_not_become_resolution_without_exhaustiveness():
     candidates = {"X", "Y"}
     constrained = {"X"}
     assert constrained < candidates
-    # No implementation-level resolution claim is permitted by the available
-    # assurance API merely because the candidate set was narrowed.
     assert not (constrained == candidates)
 
 
@@ -129,11 +128,86 @@ def test_epm_c20_individually_valid_components_do_not_authorize_unrelated_compos
     assert result.decision is Decision.QUARANTINE
 
 
-def test_epm_c21_later_evidence_cannot_strengthen_prior_state_without_temporal_bridge():
-    """Gate blocker: later evidence must not upgrade an earlier epistemic state."""
-    later_evidence_available = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
-    earlier_claim_time = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
-    assert later_evidence_available <= earlier_claim_time, (
-        "C-21 FAIL: later evidence cannot strengthen a prior state without "
-        "an explicit, justified retrospective bridge."
+def _c21_context(at: datetime) -> FAPDecisionContext:
+    return FAPDecisionContext(
+        identity="ADJ-17",
+        purpose="claim-adjustment",
+        scope="auto",
+        jurisdiction="TX",
+        at=at,
+        rule_id="carrier-default",
+        rule_version="1",
+        rule_authority="carrier-authority",
+        consequence="critical",
     )
+
+
+def _c21_proof(transition_id: str) -> dict:
+    return {
+        "property_name": "applicability",
+        "transition_id": transition_id,
+        "rule_id": "carrier-default",
+        "rule_version": "1",
+        "authority": "carrier-authority",
+        "evidence_refs": ["E-C21"],
+        "valid": True,
+        "source_purpose": "claim-adjustment",
+        "target_purpose": "claim-adjustment",
+        "source_scope": "auto",
+        "target_scope": "auto",
+        "source_jurisdiction": "TX",
+        "target_jurisdiction": "TX",
+    }
+
+
+def test_epm_c21_later_evidence_cannot_strengthen_prior_state_without_temporal_bridge():
+    """Executable gate: later evidence must fail closed without a bridge."""
+    claim_time = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
+    later_available = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
+    transition_id = "C21-GATE-LATE"
+    result = assess_fap_transition(
+        evidence_id="E-C21",
+        verification={"verdict": "STRICT", "evidence_available_at": later_available},
+        source_context=_c21_context(claim_time),
+        target_context=_c21_context(claim_time),
+        transition_id=transition_id,
+        preservation_proof=_c21_proof(transition_id),
+    )
+    assert result["decision"] == "DENY"
+    assert result["failure"] == "TEMPORAL_MISMATCH"
+
+
+def test_epm_c21_later_evidence_requires_explicit_temporal_bridge():
+    """A justified bridge permits normal downstream preservation evaluation."""
+    claim_time = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
+    later_available = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
+    transition_id = "C21-GATE-BRIDGED"
+    result = assess_fap_transition(
+        evidence_id="E-C21-BRIDGED",
+        verification={
+            "verdict": "STRICT",
+            "evidence_available_at": later_available,
+            "temporal_bridge": {"basis": "retrospective-evidence-validity", "validated": True},
+        },
+        source_context=_c21_context(claim_time),
+        target_context=_c21_context(claim_time),
+        transition_id=transition_id,
+        preservation_proof=_c21_proof(transition_id),
+    )
+    assert result["decision"] == "AUTHORIZED"
+
+
+def test_epm_c21_pre_available_evidence_preserves_existing_behavior():
+    """Evidence available before the claimed state remains eligible for normal evaluation."""
+    claim_time = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
+    available_before = datetime(2026, 8, 28, 13, 0, tzinfo=UTC)
+    transition_id = "C21-GATE-EARLY"
+    result = assess_fap_transition(
+        evidence_id="E-C21-EARLY",
+        verification={"verdict": "STRICT", "evidence_available_at": available_before},
+        source_context=_c21_context(claim_time),
+        target_context=_c21_context(claim_time),
+        transition_id=transition_id,
+        preservation_proof=_c21_proof(transition_id),
+    )
+    assert result["decision"] == "AUTHORIZED"
