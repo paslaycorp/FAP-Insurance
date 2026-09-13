@@ -120,22 +120,69 @@ def test_epm_c08_dependency_propagation_is_explicit():
 
 
 def test_epm_c14_authorization_does_not_follow_epistemic_validity_alone():
-    """Authorization requires preserved assurance and no unresolved failure."""
-    assert govern(
-        assurance_state=AssuranceState.PRESERVED,
-        failure=FailureCode.NONE,
-        consequence="standard",
-    ) is Decision.AUTHORIZED
-    assert govern(
-        assurance_state=AssuranceState.PRESERVED,
-        failure=FailureCode.MISAPPLICATION,
-        consequence="standard",
-    ) is Decision.QUARANTINE
-    assert govern(
-        assurance_state=AssuranceState.UNKNOWN,
-        failure=FailureCode.NONE,
+    """A strong verification result cannot bypass runtime governance boundaries."""
+    at = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
+    source = FAPDecisionContext(
+        identity="ADJ-17",
+        purpose="claim-adjustment",
+        scope="auto",
+        jurisdiction="TX",
+        at=at,
+        rule_id="carrier-default",
+        rule_version="1",
+        rule_authority="carrier-authority",
         consequence="critical",
-    ) is Decision.DEFER
+    )
+    target = FAPDecisionContext(
+        identity="ADJ-17",
+        purpose="litigation-discovery",
+        scope="auto",
+        jurisdiction="TX",
+        at=at,
+        rule_id="carrier-default",
+        rule_version="1",
+        rule_authority="carrier-authority",
+        consequence="critical",
+    )
+
+    blocked = assess_fap_transition(
+        evidence_id="E-C14",
+        verification={"verdict": "STRICT"},
+        source_context=source,
+        target_context=target,
+        transition_id="C14-BLOCKED",
+    )
+    assert blocked["state"] == "INVALIDATED"
+    assert blocked["decision"] == "DENY"
+    assert blocked["failure"] == "MISAPPLICATION"
+    assert blocked["fail_closed"] is True
+
+    permitted = assess_fap_transition(
+        evidence_id="E-C14",
+        verification={"verdict": "STRICT"},
+        source_context=source,
+        target_context=target,
+        transition_id="C14-PERMITTED",
+        preservation_proof={
+            "property_name": "applicability",
+            "transition_id": "C14-PERMITTED",
+            "rule_id": "carrier-default",
+            "rule_version": "1",
+            "authority": "carrier-authority",
+            "evidence_refs": ["E-C14"],
+            "valid": True,
+            "source_purpose": "claim-adjustment",
+            "target_purpose": "litigation-discovery",
+            "source_scope": "auto",
+            "target_scope": "auto",
+            "source_jurisdiction": "TX",
+            "target_jurisdiction": "TX",
+        },
+    )
+    assert permitted["state"] == "PRESERVED"
+    assert permitted["decision"] == "AUTHORIZED"
+    assert permitted["failure"] == "NONE"
+    assert permitted["fail_closed"] is False
 
 
 def test_epm_c18_temporal_preservation_requires_matching_temporal_context():
