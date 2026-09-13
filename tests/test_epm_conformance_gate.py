@@ -110,7 +110,7 @@ def test_epm_c08_dependency_propagation_is_explicit():
             "C08-UNCHANGED",
             base,
             _state("S2"),
-            frozenset({"applicability"}),
+            frozenset(),
         ),
         "applicability",
     )
