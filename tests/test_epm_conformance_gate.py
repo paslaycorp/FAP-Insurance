@@ -75,11 +75,47 @@ def test_epm_c03_discriminator_is_not_observation():
 
 
 def test_epm_c08_dependency_propagation_is_explicit():
+    """Declared dependencies must propagate material context changes into assurance."""
     prop = AssuranceProperty(
         "applicability",
         frozenset({"purpose", "scope", "jurisdiction"}),
     )
     assert prop.dependencies == frozenset({"purpose", "scope", "jurisdiction"})
+
+    base = _state("S0")
+    for dependency, changed in (
+        ("purpose", {"purpose": "litigation-discovery"}),
+        ("scope", {"scope": "property"}),
+        ("jurisdiction", {"jurisdiction": "NM"}),
+    ):
+        target = _state("S1", **changed)
+        result = evaluate_transition(
+            Transition(
+                f"C08-{dependency.upper()}",
+                base,
+                target,
+                frozenset({"applicability"}),
+            ),
+            "applicability",
+        )
+        assert result.state is AssuranceState.INVALIDATED, dependency
+        assert result.decision is Decision.QUARANTINE, dependency
+        assert result.failure in {
+            FailureCode.MISAPPLICATION,
+            FailureCode.JURISDICTION_MISMATCH,
+        }, dependency
+
+    unchanged = evaluate_transition(
+        Transition(
+            "C08-UNCHANGED",
+            base,
+            _state("S2"),
+            frozenset({"applicability"}),
+        ),
+        "applicability",
+    )
+    assert unchanged.state is AssuranceState.INVALIDATED or unchanged.state is AssuranceState.PRESERVED
+    assert unchanged.decision in {Decision.AUTHORIZED, Decision.QUARANTINE}
 
 
 def test_epm_c14_authorization_does_not_follow_epistemic_validity_alone():
