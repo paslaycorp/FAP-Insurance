@@ -136,7 +136,7 @@ def evaluate_transition(transition: Transition, property_name: str, *, consequen
     if not is_material(transition, property_name):
         if _is_valid_source(source_value):
             return _result(transition, property_name, AssuranceState.PRESERVED, Decision.AUTHORIZED, FailureCode.NONE, "Transition is outside the declared materiality boundary for this property.")
-        return _result(transition, property_name, target_value, Decision.DEFER, FailureCode.PRESERVATION_UNESTABLISHED, "Source assurance is not established for this property.")
+        return _result(transition, property_name, source_value, Decision.DEFER, FailureCode.PRESERVATION_UNESTABLISHED, "Source assurance is not established for this property.")
     proof = transition.preservation.get(property_name)
     if preservation_established(transition, property_name):
         return _result(transition, property_name, AssuranceState.PRESERVED, Decision.AUTHORIZED, FailureCode.NONE, "Explicit preservation relation established for the material transition.")
