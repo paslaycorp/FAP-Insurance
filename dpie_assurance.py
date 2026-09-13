@@ -130,7 +130,6 @@ def _result(t: Transition, prop: str, state: AssuranceState, decision: Decision,
     return AssuranceResult(prop, state, decision, failure, reason, t.transition_id, t.target.rule.rule_id, t.target.rule.version)
 def evaluate_transition(transition: Transition, property_name: str, *, consequence: str = "standard") -> AssuranceResult:
     source_value = transition.source.properties.get(property_name, AssuranceState.UNKNOWN)
-    target_value = transition.target.properties.get(property_name, AssuranceState.UNKNOWN)
     if source_value in {AssuranceState.UNKNOWN, AssuranceState.CONTRADICTED}:
         return _result(transition, property_name, AssuranceState.UNKNOWN, Decision.DEFER, FailureCode.NONE, "Required source assurance is unknown or contradictory; no invalidity is fabricated.")
     if not is_material(transition, property_name):
