@@ -27,8 +27,14 @@ jobs:
         run: |
           ruff check --fix dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_composition.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py tests/test_dpie_smoke.py
           ruff check dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py tests/test_dpie_assurance.py tests/test_dpie_audit_boundary.py tests/test_dpie_composition.py tests/test_dpie_fap_boundary.py tests/test_dpie_red_team.py tests/test_dpie_smoke.py
+      - name: Lint EPM vNext
+        run: ruff check epm_*.py epm/*.py tests/test_epm_*.py
       - name: Compile assurance layer
         run: python -m compileall -q dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py
+      - name: Compile EPM vNext
+        run: python -m compileall -q epm_*.py epm
+      - name: Import EPM public facade
+        run: python -c "import epm; print(epm.EPM_ENGINE_VERSION)"
       - name: Import API
         run: python -c "from api import app; print(app.title)"
       - name: API health
@@ -55,6 +61,8 @@ jobs:
         run: pytest -q tests/test_dpie_red_team.py --tb=short
       - name: DPIE smoke test
         run: pytest -q tests/test_dpie_smoke.py --tb=short
+      - name: EPM vNext semantic gate
+        run: pytest -q tests/test_epm_generic_envelope.py tests/test_epm_evidence_availability.py tests/test_epm_source_typing.py tests/test_epm_constraints.py tests/test_epm_resolution.py tests/test_epm_justification.py tests/test_epm_state_integration.py tests/test_epm_cross_domain_conformance.py --tb=short
       - name: Full test suite
         run: pytest -q --tb=short
 
