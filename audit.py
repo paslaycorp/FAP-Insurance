@@ -25,6 +25,10 @@ _local = threading.local()
 _chain_lock = threading.Lock()
 
 
+class AuditIntegrityError(RuntimeError):
+    """Raised when authoritative audit reads are attempted on a compromised chain."""
+
+
 def _get_conn() -> sqlite3.Connection:
     if not hasattr(_local, "conn") or _local.conn is None:
         _local.conn = sqlite3.connect(str(_db_path), check_same_thread=False)
@@ -229,30 +233,6 @@ def store_verification(
     )
 
 
-def get_by_evidence_id(evidence_id: str) -> Optional[AuditRecord]:
-    _init_db()
-    row = _get_conn().execute("SELECT * FROM audit_records WHERE evidence_id = ? LIMIT 1", (evidence_id,)).fetchone()
-    return _row_to_record(row) if row else None
-
-
-def get_by_claim_id(claim_id: str) -> List[AuditRecord]:
-    _init_db()
-    rows = _get_conn().execute("SELECT * FROM audit_records WHERE claim_id = ? ORDER BY created_at DESC", (claim_id,)).fetchall()
-    return [_row_to_record(r) for r in rows]
-
-
-def get_by_request_id(request_id: str) -> Optional[AuditRecord]:
-    _init_db()
-    row = _get_conn().execute("SELECT * FROM audit_records WHERE request_id = ? LIMIT 1", (request_id,)).fetchone()
-    return _row_to_record(row) if row else None
-
-
-def list_recent(limit: int = 100) -> List[AuditRecord]:
-    _init_db()
-    rows = _get_conn().execute("SELECT * FROM audit_records ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
-    return [_row_to_record(r) for r in rows]
-
-
 def get_chain_integrity() -> Dict[str, Any]:
     _init_db()
     rows = _get_conn().execute("SELECT * FROM audit_records ORDER BY id ASC").fetchall()
@@ -276,6 +256,42 @@ def get_chain_integrity() -> Dict[str, Any]:
         head_hash = row["record_hash"]
 
     return {"status": "intact" if not breaks else "compromised", "total_records": len(rows), "breaks": breaks, "head_hash": head_hash}
+
+
+def _assert_chain_intact() -> None:
+    integrity = get_chain_integrity()
+    if integrity["status"] == "compromised":
+        raise AuditIntegrityError(
+            f"Audit chain integrity is compromised ({len(integrity['breaks'])} break(s)); authoritative retrieval is blocked."
+        )
+
+
+def get_by_evidence_id(evidence_id: str) -> Optional[AuditRecord]:
+    _init_db()
+    _assert_chain_intact()
+    row = _get_conn().execute("SELECT * FROM audit_records WHERE evidence_id = ? LIMIT 1", (evidence_id,)).fetchone()
+    return _row_to_record(row) if row else None
+
+
+def get_by_claim_id(claim_id: str) -> List[AuditRecord]:
+    _init_db()
+    _assert_chain_intact()
+    rows = _get_conn().execute("SELECT * FROM audit_records WHERE claim_id = ? ORDER BY created_at DESC", (claim_id,)).fetchall()
+    return [_row_to_record(r) for r in rows]
+
+
+def get_by_request_id(request_id: str) -> Optional[AuditRecord]:
+    _init_db()
+    _assert_chain_intact()
+    row = _get_conn().execute("SELECT * FROM audit_records WHERE request_id = ? LIMIT 1", (request_id,)).fetchone()
+    return _row_to_record(row) if row else None
+
+
+def list_recent(limit: int = 100) -> List[AuditRecord]:
+    _init_db()
+    _assert_chain_intact()
+    rows = _get_conn().execute("SELECT * FROM audit_records ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    return [_row_to_record(r) for r in rows]
 
 
 def get_replay_inputs(evidence_id: str) -> Optional[Dict[str, Any]]:

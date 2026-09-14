@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+import audit
 from dpie_context import RequestAssuranceContext, set_context, clear_context
 from evidence import EvidenceEnvelope
 
@@ -38,3 +39,36 @@ def test_dpie_determination_is_embedded_in_existing_audit_payload():
         assert payload["dpie"]["target_context"]["purpose"] == "litigation-discovery"
     finally:
         clear_context()
+
+
+def test_epm_c02_broken_provenance_dependency_is_detected_by_audit_chain(tmp_path):
+    """Breaking a stored upstream provenance dependency must surface as compromised."""
+    audit._db_path = tmp_path / "c02.sqlite3"
+    record = audit.store_verification(
+        request_id="REQ-C02",
+        claim_id="CLAIM-C02",
+        verdict="STRICT",
+        confidence_score=0.95,
+        components={"fap_core": 1.0},
+        request_payload={"claim_id": "CLAIM-C02", "media_hash": "a" * 64},
+        envelope={
+            "evidence_id": "FAP-EV-C02",
+            "media_hash": "a" * 64,
+            "fap_core_response": {"provenance_hash": "PROV-C02"},
+        },
+        raw_fap_response={"provenance_hash": "PROV-C02"},
+    )
+
+    assert audit.get_chain_integrity()["status"] == "intact"
+
+    conn = audit._get_conn()
+    conn.execute(
+        "UPDATE audit_records SET fap_core_response_json = NULL WHERE evidence_id = ?",
+        (record.evidence_id,),
+    )
+    conn.commit()
+
+    integrity = audit.get_chain_integrity()
+    assert integrity["status"] == "compromised"
+    assert integrity["breaks"]
+    assert integrity["breaks"][0]["evidence_id"] == record.evidence_id

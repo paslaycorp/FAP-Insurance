@@ -35,7 +35,30 @@ def _proof_from_mapping(raw: Optional[Mapping[str, Any]], transition_id: str) ->
                              source_purpose=raw.get("source_purpose"), target_purpose=raw.get("target_purpose"), source_scope=raw.get("source_scope"), target_scope=raw.get("target_scope"),
                              source_jurisdiction=raw.get("source_jurisdiction"), target_jurisdiction=raw.get("target_jurisdiction"))
 
+def _validated_temporal_bridge(raw: Any) -> bool:
+    return (
+        isinstance(raw, Mapping)
+        and raw.get("validated") is True
+        and isinstance(raw.get("basis"), str)
+        and bool(raw["basis"].strip())
+    )
+
 def assess_fap_transition(*, evidence_id: str, verification: Mapping[str, Any], source_context: FAPDecisionContext, target_context: FAPDecisionContext, transition_id: str, preservation_proof: Any = None) -> Mapping[str, Any]:
+    evidence_available_at = verification.get("evidence_available_at")
+    temporal_bridge = verification.get("temporal_bridge")
+    if isinstance(evidence_available_at, datetime) and source_context.at is not None and evidence_available_at > source_context.at and not _validated_temporal_bridge(temporal_bridge):
+        return {
+            "transition_id": transition_id,
+            "property": "applicability",
+            "state": AssuranceState.INVALIDATED.value,
+            "decision": Decision.DENY.value if target_context.consequence.lower() == "critical" else Decision.QUARANTINE.value,
+            "failure": "TEMPORAL_MISMATCH",
+            "reason": "Evidence became available after the source temporal context and no validated temporal bridge was supplied.",
+            "rule_id": target_context.rule_id,
+            "rule_version": target_context.rule_version,
+            "source_evidence_id": evidence_id,
+            "fail_closed": True,
+        }
     source = _source_state(evidence_id, verification, source_context)
     target = State(f"{evidence_id}:target", {"applicability": AssuranceState.PRESERVED}, AssuranceContext(target_context.identity, target_context.purpose, target_context.scope, target_context.jurisdiction, target_context.at),
                    RuleBinding(target_context.rule_id, target_context.rule_version, target_context.rule_authority, target_context.jurisdiction, target_context.at))
