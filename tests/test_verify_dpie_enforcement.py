@@ -1,7 +1,7 @@
 """End-to-end-ish regression test for the /verify processing path.
 
 The external FAP-Core/NOAA dependencies are replaced with deterministic fakes;
-the real API processing function, DPIE runtime, EvidenceEnvelope serialization,
+the real API processing function, EPM runtime, EvidenceEnvelope serialization,
 and fail-closed decision path are exercised.
 """
 
@@ -42,7 +42,13 @@ async def test_verify_material_context_change_is_blocked_and_audited(monkeypatch
     captured = {}
 
     async def fake_solar(_timestamp):
-        return SimpleNamespace(confidence=1.0, flux=100.0, status="OK", reason=None, to_dict=lambda: {"flux": 100.0})
+        return SimpleNamespace(
+            confidence=1.0,
+            flux=100.0,
+            status="OK",
+            reason=None,
+            to_dict=lambda: {"flux": 100.0},
+        )
 
     def fake_store_verification(**kwargs):
         captured.update(kwargs)
@@ -69,11 +75,17 @@ async def test_verify_material_context_change_is_blocked_and_audited(monkeypatch
 
     try:
         with pytest.raises(HTTPException) as exc_info:
-            await api._process_single_claim(req, FakeFapClient(), FakeReality(), FakeFusion(), "REQ-001")
+            await api._process_single_claim(
+                req,
+                FakeFapClient(),
+                FakeReality(),
+                FakeFusion(),
+                "REQ-001",
+            )
 
         assert exc_info.value.status_code == 403
         detail = exc_info.value.detail
-        assert detail["error"] == "DPIE_ASSURANCE_BLOCKED"
+        assert detail["error"] == "EPM_ASSURANCE_BLOCKED"
         assert detail["decision"] == "DENY"
         assert detail["failure"] == "MISAPPLICATION"
         assert detail["audit_record_hash"] == "hash-001"
@@ -82,6 +94,10 @@ async def test_verify_material_context_change_is_blocked_and_audited(monkeypatch
         assert payload["dpie"]["decision"] == "DENY"
         assert payload["dpie"]["failure"] == "MISAPPLICATION"
         assert payload["dpie"]["source_evidence_id"] == payload["evidence_id"]
+        assert payload["dpie"]["temporal_availability"]["source"] == (
+            "fap-insurance-authenticated-request"
+        )
+        assert payload["dpie"]["temporal_availability"]["attestation"]["validated"] is True
         assert captured["claim_id"] == "CLM-001"
     finally:
         clear_context()

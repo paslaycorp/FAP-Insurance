@@ -67,13 +67,15 @@ jobs:
         run: pytest -q tests/test_dpie_smoke.py --tb=short
       - name: EPM vNext semantic gate through external package
         run: pytest -q tests/test_epm_generic_envelope.py tests/test_epm_evidence_availability.py tests/test_epm_source_typing.py tests/test_epm_constraints.py tests/test_epm_resolution.py tests/test_epm_justification.py tests/test_epm_state_integration.py tests/test_epm_cross_domain_conformance.py --tb=short
+      - name: EPM production C-21 and observability gate
+        run: pytest -q tests/test_epm_production_c21.py tests/test_epm_observability.py tests/test_verify_dpie_enforcement.py --tb=short
       - name: Full test suite
         run: pytest -q --tb=short
 
   build:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

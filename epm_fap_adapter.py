@@ -13,10 +13,13 @@ from epm import (
     AssuranceContext,
     AssuranceState,
     Decision,
+    EvidenceAvailability,
     EvidentiaryEnvelope,
     FailureCode,
     RuleBinding,
     State,
+    TemporalAvailability,
+    assess_temporal_availability,
     assess_transition,
 )
 
@@ -83,6 +86,29 @@ def envelope_from_fap_transition(
     )
 
 
+def _temporal_result(
+    *,
+    transition_id: str,
+    evidence_id: str,
+    target_context: FAPDecisionContext,
+    state: AssuranceState,
+    decision: Decision,
+    reason: str,
+) -> Mapping[str, object]:
+    return {
+        "transition_id": transition_id,
+        "property": "applicability",
+        "state": state.value,
+        "decision": decision.value,
+        "failure": FailureCode.TEMPORAL_MISMATCH.value,
+        "reason": reason,
+        "rule_id": target_context.rule_id,
+        "rule_version": target_context.rule_version,
+        "source_evidence_id": evidence_id,
+        "fail_closed": True,
+    }
+
+
 def assess_fap_via_epm_envelope(
     *,
     evidence_id: str,
@@ -94,9 +120,48 @@ def assess_fap_via_epm_envelope(
 ) -> Mapping[str, object]:
     """Evaluate FAP through the standalone EPM package.
 
-    The legacy evidence_available_at helper is compatibility behavior only and
-    remains distinct from the trusted EvidenceAvailability ingestion contract.
+    Production callers may require a typed ``EvidenceAvailability`` record. The
+    record is assessed against the *target epistemic state time*. This prevents
+    evidence first observed later from being silently used in an earlier state.
+
+    The historical ``evidence_available_at`` helper remains compatibility
+    behavior for old tests/callers and is not treated as trusted provenance.
     """
+    availability = verification.get("evidence_availability")
+    require_trusted = verification.get("require_trusted_availability") is True
+    if availability is not None or require_trusted:
+        trusted_availability = (
+            availability if isinstance(availability, EvidenceAvailability) else None
+        )
+        temporal = assess_temporal_availability(
+            evidence_id=evidence_id,
+            state_at=target_context.at,
+            availability=trusted_availability,
+        )
+        if temporal.status is TemporalAvailability.UNAVAILABLE:
+            decision = (
+                Decision.DENY
+                if target_context.consequence.lower() == "critical"
+                else Decision.QUARANTINE
+            )
+            return _temporal_result(
+                transition_id=transition_id,
+                evidence_id=evidence_id,
+                target_context=target_context,
+                state=AssuranceState.INVALIDATED,
+                decision=decision,
+                reason=temporal.reason,
+            )
+        if temporal.status is TemporalAvailability.UNKNOWN and require_trusted:
+            return _temporal_result(
+                transition_id=transition_id,
+                evidence_id=evidence_id,
+                target_context=target_context,
+                state=AssuranceState.UNKNOWN,
+                decision=Decision.DEFER,
+                reason=temporal.reason,
+            )
+
     evidence_available_at = verification.get("evidence_available_at")
     temporal_bridge = verification.get("temporal_bridge")
     if (

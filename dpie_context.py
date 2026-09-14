@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from epm import EvidenceAvailability
+
 
 @dataclass(frozen=True)
 class RequestAssuranceContext:
@@ -27,6 +29,9 @@ class RequestAssuranceContext:
     rule_authority: str
     consequence: str
     preservation_proof: Optional[Dict[str, Any]] = None
+    evidence_availability: Optional[EvidenceAvailability] = None
+    require_trusted_availability: bool = False
+    event_time: Optional[datetime] = None
 
 
 _current: ContextVar[Optional[RequestAssuranceContext]] = ContextVar("dpie_assurance_context", default=None)

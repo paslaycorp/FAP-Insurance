@@ -76,9 +76,17 @@ def assess_request_context(
         context.rule_authority,
         context.consequence,
     )
+    runtime_verification = dict(verification)
+    if context.evidence_availability is not None:
+        runtime_verification.setdefault(
+            "evidence_availability", context.evidence_availability
+        )
+    if context.require_trusted_availability:
+        runtime_verification["require_trusted_availability"] = True
+
     return assess_fap_transition(
         evidence_id=evidence_id,
-        verification=verification,
+        verification=runtime_verification,
         source_context=source,
         target_context=target,
         transition_id=f"DPIE-{evidence_id or 'PENDING'}",
