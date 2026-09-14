@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import builtins
 import inspect
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
@@ -13,6 +14,7 @@ from slowapi.extension import _rate_limit_exceeded_handler
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from dpie_context import RequestAssuranceContext, set_context
+from epm import EPM_ENGINE_VERSION
 
 _original_limiter_limit = Limiter.limit
 
@@ -181,3 +183,9 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: datetime
     service: str = "fap-insurance"
+    epm_engine_version: str = EPM_ENGINE_VERSION
+    git_commit: str = Field(default_factory=lambda: os.getenv("RENDER_GIT_COMMIT", "unknown"))
+    git_branch: str = Field(default_factory=lambda: os.getenv("RENDER_GIT_BRANCH", "unknown"))
+    git_repo_slug: str = Field(default_factory=lambda: os.getenv("RENDER_GIT_REPO_SLUG", "unknown"))
+    render_service_id: Optional[str] = Field(default_factory=lambda: os.getenv("RENDER_SERVICE_ID"))
+    render_instance_id: Optional[str] = Field(default_factory=lambda: os.getenv("RENDER_INSTANCE_ID"))
