@@ -14,6 +14,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
   deployments: write
 
 concurrency:
@@ -84,9 +85,51 @@ jobs:
             echo
             echo "Candidate was superseded before deployment. No production mutation occurred."
             echo
-            echo "- Candidate: \`${{ steps.target.outputs.sha }}\`"
-            echo "- Current main: \`$(git rev-parse origin/main)\`"
+            echo "- Candidate: `${{ steps.target.outputs.sha }}`"
+            echo "- Current main: `$(git rev-parse origin/main)`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Require merged-PR provenance
+        if: steps.freshness.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          PR_PAYLOAD="$(gh api -H "Accept: application/vnd.github+json" "repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/pulls")"
+          export PR_PAYLOAD
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          sha = os.environ["TARGET_SHA"]
+          prs = json.loads(os.environ["PR_PAYLOAD"])
+          matches = [
+              pr
+              for pr in prs
+              if pr.get("merged_at")
+              and pr.get("base", {}).get("ref") == "main"
+              and pr.get("merge_commit_sha") == sha
+          ]
+          if len(matches) != 1:
+              print(
+                  f"Release denied: {sha} is not uniquely attributable to a merged PR into main.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          pr = matches[0]
+          number = pr.get("number")
+          url = pr.get("html_url")
+          print(f"Release provenance accepted: PR #{number} -> {sha}")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write("## Merge provenance\n\n")
+                  handle.write(f"- PR: [#{number}]({url})\n")
+                  handle.write(f"- Merge SHA: `{sha}`\n")
+          PY
 
       - name: Prove CI on manual dispatch
         if: steps.freshness.outputs.eligible == 'true' && github.event_name == 'workflow_dispatch'
