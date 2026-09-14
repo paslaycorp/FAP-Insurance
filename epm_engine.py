@@ -15,7 +15,6 @@ from epm_state import (
     inspect_evidentiary_state,
 )
 
-
 EPM_ENGINE_VERSION = "epm-engine/0.1"
 
 

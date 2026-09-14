@@ -22,7 +22,6 @@ from epm_temporal import (
     assess_temporal_availability,
 )
 
-
 EVIDENTIARY_STATE_SCHEMA = "epm.evidentiary-state/0.1"
 
 
