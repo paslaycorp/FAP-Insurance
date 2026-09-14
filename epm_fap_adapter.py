@@ -10,13 +10,13 @@ from datetime import datetime
 from typing import Any, Mapping
 
 from dpie_assurance import AssuranceContext, AssuranceState, Decision, FailureCode, RuleBinding, State
-from dpie_runtime import (
-    FAPDecisionContext,
-    _proof_from_mapping,
-    _source_state,
-    _validated_temporal_bridge,
-)
 from epm_envelope import EvidentiaryEnvelope, evaluate_evidentiary_envelope
+from epm_fap_semantics import (
+    FAPDecisionContext,
+    preservation_proof_from_mapping,
+    source_state_from_fap,
+    validated_temporal_bridge,
+)
 
 
 def envelope_from_fap_transition(
@@ -29,7 +29,7 @@ def envelope_from_fap_transition(
     preservation_proof: Any = None,
 ) -> EvidentiaryEnvelope:
     """Translate the existing FAP/DPIE transition inputs without semantic promotion."""
-    source = _source_state(evidence_id, verification, source_context)
+    source = source_state_from_fap(evidence_id, verification, source_context)
     target = State(
         f"{evidence_id}:target",
         {"applicability": AssuranceState.PRESERVED},
@@ -49,7 +49,7 @@ def envelope_from_fap_transition(
         ),
     )
     proof = (
-        _proof_from_mapping(preservation_proof, transition_id)
+        preservation_proof_from_mapping(preservation_proof, transition_id)
         if isinstance(preservation_proof, Mapping)
         else preservation_proof
     )
@@ -83,10 +83,10 @@ def assess_fap_via_epm_envelope(
     transition_id: str,
     preservation_proof: Any = None,
 ) -> Mapping[str, object]:
-    """Compatibility evaluator used only for vNext parity testing.
+    """Evaluate the current FAP boundary through the generic EPM envelope.
 
-    The current C-21 helper remains outside the generic envelope until trusted
-    evidence-availability provenance is modeled end to end.
+    The legacy evidence_available_at helper remains compatibility behavior only.
+    It must not be interpreted as trusted production availability provenance.
     """
     evidence_available_at = verification.get("evidence_available_at")
     temporal_bridge = verification.get("temporal_bridge")
@@ -94,7 +94,7 @@ def assess_fap_via_epm_envelope(
         isinstance(evidence_available_at, datetime)
         and source_context.at is not None
         and evidence_available_at > source_context.at
-        and not _validated_temporal_bridge(temporal_bridge)
+        and not validated_temporal_bridge(temporal_bridge)
     ):
         return {
             "transition_id": transition_id,
