@@ -72,7 +72,7 @@ class EvidenceEnvelope(BaseModel):
         return self.verdict
 
     def to_audit_payload(self) -> Dict[str, Any]:
-        """Serialize FAP evidence plus the DPIE determination into the same ledger record."""
+        """Serialize FAP evidence plus the EPM determination into one ledger record."""
         payload: Dict[str, Any] = {
             "evidence_id": self.evidence_id,
             "media_hash": self.media_hash,
@@ -86,47 +86,61 @@ class EvidenceEnvelope(BaseModel):
             "confidence_score": self.confidence_score,
             "verdict": self.verdict,
         }
-        try:
-            from dpie_context import get_context
-            from dpie_runtime import assess_request_context
-            context = get_context()
-            if context is not None:
-                determination = assess_request_context(
-                    evidence_id=self.evidence_id,
-                    verification={"verdict": self.verdict},
-                    context=context,
-                )
-                payload["dpie"] = {
-                    "transition_id": determination["transition_id"],
-                    "property": determination["property"],
-                    "state": determination["state"],
-                    "decision": determination["decision"],
-                    "failure": determination["failure"],
-                    "reason": determination["reason"],
-                    "rule_id": determination["rule_id"],
-                    "rule_version": determination["rule_version"],
-                    "source_evidence_id": self.evidence_id,
-                    "fail_closed": determination["fail_closed"],
-                    "source_context": {
-                        "purpose": context.source_purpose,
-                        "scope": context.source_scope,
-                        "jurisdiction": context.source_jurisdiction,
-                        "at": context.source_at.isoformat() if context.source_at else None,
+        from dpie_context import get_context
+        from dpie_runtime import assess_request_context
+
+        context = get_context()
+        if context is not None:
+            determination = assess_request_context(
+                evidence_id=self.evidence_id,
+                verification={"verdict": self.verdict},
+                context=context,
+            )
+            availability = context.evidence_availability
+            temporal_availability = None
+            if availability is not None:
+                temporal_availability = {
+                    "evidence_id": availability.evidence_id,
+                    "available_at": availability.available_at.isoformat(),
+                    "observed_at": availability.observed_at.isoformat(),
+                    "source": availability.source,
+                    "provenance_ref": availability.provenance_ref,
+                    "attestation": {
+                        "attestation_id": availability.attestation.attestation_id,
+                        "authority": availability.attestation.authority,
+                        "method": availability.attestation.method,
+                        "basis": availability.attestation.basis,
+                        "validated": availability.attestation.validated,
                     },
-                    "target_context": {
-                        "purpose": context.target_purpose,
-                        "scope": context.target_scope,
-                        "jurisdiction": context.target_jurisdiction,
-                        "at": context.target_at.isoformat() if context.target_at else None,
-                    },
-                    "rule_authority": context.rule_authority,
-                    "consequence": context.consequence,
                 }
-        except Exception:
-            # Ledger serialization must not invent assurance. The failure is
-            # intentionally omitted here; the endpoint/model path still
-            # exposes the runtime exception rather than silently authorizing.
-            raise
+            payload["dpie"] = {
+                "transition_id": determination["transition_id"],
+                "property": determination["property"],
+                "state": determination["state"],
+                "decision": determination["decision"],
+                "failure": determination["failure"],
+                "reason": determination["reason"],
+                "rule_id": determination["rule_id"],
+                "rule_version": determination["rule_version"],
+                "source_evidence_id": self.evidence_id,
+                "fail_closed": determination["fail_closed"],
+                "event_time": context.event_time.isoformat() if context.event_time else None,
+                "source_context": {
+                    "purpose": context.source_purpose,
+                    "scope": context.source_scope,
+                    "jurisdiction": context.source_jurisdiction,
+                    "at": context.source_at.isoformat() if context.source_at else None,
+                },
+                "target_context": {
+                    "purpose": context.target_purpose,
+                    "scope": context.target_scope,
+                    "jurisdiction": context.target_jurisdiction,
+                    "at": context.target_at.isoformat() if context.target_at else None,
+                },
+                "temporal_availability": temporal_availability,
+                "rule_authority": context.rule_authority,
+                "consequence": context.consequence,
+            }
         return payload
 
     def discrepancy_report(self) -> List[str]:
