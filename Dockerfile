@@ -8,8 +8,9 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
-# Install build deps
-RUN apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /var/lib/apt/lists/*
+# Install build deps. git is required because EPM is pinned to an exact
+# GitHub commit SHA in requirements.txt.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc git && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
