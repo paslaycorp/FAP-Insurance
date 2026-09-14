@@ -11,10 +11,11 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -103,7 +104,7 @@ class RenderAPI:
             params={"limit": limit},
         )
         if not isinstance(payload, list):
-            raise RuntimeError("Render deploy list returned a non-list payload")
+            raise TypeError("Render deploy list returned a non-list payload")
         return [self._unwrap_deploy(item) for item in payload]
 
     def current_live_deploy(self) -> dict[str, Any] | None:
