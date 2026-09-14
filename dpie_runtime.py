@@ -28,15 +28,24 @@ def assess_fap_transition(
     transition_id: str,
     preservation_proof: Any = None,
 ) -> Mapping[str, Any]:
-    """Compatibility entry point routed through the generic EPM envelope."""
-    return assess_fap_via_epm_envelope(
-        evidence_id=evidence_id,
-        verification=verification,
-        source_context=source_context,
-        target_context=target_context,
-        transition_id=transition_id,
-        preservation_proof=preservation_proof,
+    """Compatibility entry point routed through the generic EPM envelope.
+
+    Native EPM evaluation includes a schema version marker. The legacy FAP/DPIE
+    surface intentionally removes that additive field so existing callers see
+    the exact historical result shape.
+    """
+    result = dict(
+        assess_fap_via_epm_envelope(
+            evidence_id=evidence_id,
+            verification=verification,
+            source_context=source_context,
+            target_context=target_context,
+            transition_id=transition_id,
+            preservation_proof=preservation_proof,
+        )
     )
+    result.pop("schema_version", None)
+    return result
 
 
 def assess_request_context(
