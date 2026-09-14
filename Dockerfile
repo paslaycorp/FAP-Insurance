@@ -48,7 +48,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', '8000') + '/health')" || exit 1
 
 # Render may assign the public service port dynamically. Bind to the
-# platform-provided PORT rather than hard-coding 8000.
+# platform-provided PORT rather than hard-coding 8000. render_app adds a
+# platform-level GET/HEAD / readiness surface while preserving api.py.
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn render_app:app --host 0.0.0.0 --port ${PORT:-8000}"]
