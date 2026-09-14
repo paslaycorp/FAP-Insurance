@@ -7,9 +7,9 @@ that the media existed at capture time or at any earlier external time.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
-import re
 
 from epm import AvailabilityAttestation, EvidenceAvailability
 
@@ -59,9 +59,7 @@ def ingest_fap_authenticated_request(
     if receipt.observed_at < receipt.received_at:
         raise FAPReceiptIngestionError("observed_at cannot precede received_at")
 
-    provenance_ref = (
-        f"urn:fap-insurance:request:{request_id}:sha256:{media_hash}"
-    )
+    provenance_ref = f"urn:fap-insurance:request:{request_id}:sha256:{media_hash}"
     attestation = AvailabilityAttestation(
         attestation_id=f"fap-request-receipt:{request_id}",
         authority="FAP-Insurance production API",
