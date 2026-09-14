@@ -1,8 +1,7 @@
-"""Compatibility adapter from the current FAP runtime into the generic EPM envelope.
+"""FAP compatibility adapter into the standalone EPM runtime.
 
-The adapter preserves the frozen FAP/DPIE semantics. It does not change the
-production request model and it does not treat claimed/capture/processed time
-as evidence-availability provenance.
+FAP owns domain translation only. The generic envelope and transition evaluator
+are imported from the frozen standalone EPM RC pinned in requirements.txt.
 """
 from __future__ import annotations
 
@@ -10,15 +9,16 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from dpie_assurance import (
+from epm import (
     AssuranceContext,
     AssuranceState,
     Decision,
+    EvidentiaryEnvelope,
     FailureCode,
     RuleBinding,
     State,
+    assess_transition,
 )
-from epm_envelope import EvidentiaryEnvelope, evaluate_evidentiary_envelope
 from epm_fap_semantics import (
     FAPDecisionContext,
     preservation_proof_from_mapping,
@@ -36,7 +36,7 @@ def envelope_from_fap_transition(
     transition_id: str,
     preservation_proof: Any = None,
 ) -> EvidentiaryEnvelope:
-    """Translate the existing FAP/DPIE transition inputs without semantic promotion."""
+    """Translate the existing FAP boundary without semantic promotion."""
     source = source_state_from_fap(evidence_id, verification, source_context)
     target = State(
         f"{evidence_id}:target",
@@ -91,10 +91,10 @@ def assess_fap_via_epm_envelope(
     transition_id: str,
     preservation_proof: Any = None,
 ) -> Mapping[str, object]:
-    """Evaluate the current FAP boundary through the generic EPM envelope.
+    """Evaluate FAP through the standalone EPM package.
 
-    The legacy evidence_available_at helper remains compatibility behavior only.
-    It must not be interpreted as trusted production availability provenance.
+    The legacy evidence_available_at helper is compatibility behavior only and
+    remains distinct from the trusted EvidenceAvailability ingestion contract.
     """
     evidence_available_at = verification.get("evidence_available_at")
     temporal_bridge = verification.get("temporal_bridge")
@@ -132,4 +132,4 @@ def assess_fap_via_epm_envelope(
         transition_id=transition_id,
         preservation_proof=preservation_proof,
     )
-    return evaluate_evidentiary_envelope(envelope)
+    return assess_transition(envelope)

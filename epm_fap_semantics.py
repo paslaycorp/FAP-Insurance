@@ -1,8 +1,7 @@
 """Shared FAP -> EPM compatibility semantics.
 
-This module contains only translation logic required to preserve the frozen
-FAP/DPIE boundary while routing transition construction through the generic
-EPM envelope. It is not a policy engine and does not create new evidence.
+This module contains only FAP translation logic. The semantic types are owned by
+the standalone EPM runtime pinned in requirements.txt.
 """
 from __future__ import annotations
 
@@ -11,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from dpie_assurance import (
+from epm import (
     AssuranceContext,
     AssuranceState,
     PreservationProof,
