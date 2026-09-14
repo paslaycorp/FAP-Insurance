@@ -31,10 +31,14 @@ jobs:
         run: ruff check --ignore N999 epm_*.py
       - name: Lint EPM vNext tests for correctness
         run: ruff check --select F tests/test_epm_*.py
+      - name: Lint production release controller
+        run: ruff check ops/render_release.py tests/test_render_release.py
       - name: Compile assurance layer
         run: python -m compileall -q dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py
       - name: Compile FAP EPM adapter
         run: python -m compileall -q epm_*.py
+      - name: Compile production release controller
+        run: python -m compileall -q ops/render_release.py
       - name: Verify standalone EPM package
         run: |
           python -c "import epm; print(epm.__file__); assert epm.EPM_ENGINE_VERSION == 'epm-engine/0.1.1'"
@@ -69,6 +73,8 @@ jobs:
         run: pytest -q tests/test_epm_generic_envelope.py tests/test_epm_evidence_availability.py tests/test_epm_source_typing.py tests/test_epm_constraints.py tests/test_epm_resolution.py tests/test_epm_justification.py tests/test_epm_state_integration.py tests/test_epm_cross_domain_conformance.py --tb=short
       - name: EPM production C-21 and observability gate
         run: pytest -q tests/test_epm_production_c21.py tests/test_epm_observability.py tests/test_verify_dpie_enforcement.py --tb=short
+      - name: Production release controller tests
+        run: pytest -q tests/test_render_release.py --tb=short
       - name: Full test suite
         run: pytest -q --tb=short
 
