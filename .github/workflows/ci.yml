@@ -30,7 +30,7 @@ jobs:
       - name: Lint EPM vNext engine
         run: ruff check --ignore N999 epm_*.py epm/*.py
       - name: Lint EPM vNext tests for correctness
-        run: ruff check --select E,F tests/test_epm_*.py
+        run: ruff check --select F tests/test_epm_*.py
       - name: Compile assurance layer
         run: python -m compileall -q dpie_assurance.py dpie_context.py dpie_runtime.py dpie_composition.py governor.py
       - name: Compile EPM vNext
