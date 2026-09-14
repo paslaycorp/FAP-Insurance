@@ -6,9 +6,10 @@ EPM envelope. It is not a policy engine and does not create new evidence.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Mapping, Optional
+from typing import Any
 
 from dpie_assurance import (
     AssuranceContext,
@@ -21,11 +22,11 @@ from dpie_assurance import (
 
 @dataclass(frozen=True)
 class FAPDecisionContext:
-    identity: Optional[str]
+    identity: str | None
     purpose: str
-    scope: Optional[str]
-    jurisdiction: Optional[str]
-    at: Optional[datetime]
+    scope: str | None
+    jurisdiction: str | None
+    at: datetime | None
     rule_id: str
     rule_version: str
     rule_authority: str
@@ -69,9 +70,9 @@ def source_state_from_fap(
 
 
 def preservation_proof_from_mapping(
-    raw: Optional[Mapping[str, Any]],
+    raw: Mapping[str, Any] | None,
     transition_id: str,
-) -> Optional[PreservationProof]:
+) -> PreservationProof | None:
     if not raw:
         return None
     return PreservationProof(

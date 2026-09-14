@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 
 class TemporalAvailability(str, Enum):
@@ -40,13 +39,13 @@ class EvidenceAvailability:
 @dataclass(frozen=True)
 class TemporalAvailabilityResult:
     evidence_id: str
-    state_at: Optional[datetime]
+    state_at: datetime | None
     status: TemporalAvailability
     trusted: bool
     reason_code: str
     reason: str
-    available_at: Optional[datetime] = None
-    provenance_ref: Optional[str] = None
+    available_at: datetime | None = None
+    provenance_ref: str | None = None
 
 
 def _aware(value: datetime) -> bool:
@@ -75,8 +74,8 @@ def is_trusted_availability(record: EvidenceAvailability, evidence_id: str) -> b
 def assess_temporal_availability(
     *,
     evidence_id: str,
-    state_at: Optional[datetime],
-    availability: Optional[EvidenceAvailability],
+    state_at: datetime | None,
+    availability: EvidenceAvailability | None,
 ) -> TemporalAvailabilityResult:
     """Determine whether evidence was available at an epistemic state time.
 

@@ -6,9 +6,9 @@ flag cannot manufacture a valid narrowing operation.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping, Optional, Tuple
 
 
 class PremiseState(str, Enum):
@@ -43,17 +43,17 @@ class ConstraintStatus(str, Enum):
 class Constraint:
     constraint_id: str
     proposition: str
-    premise_refs: Tuple[str, ...]
+    premise_refs: tuple[str, ...]
     premise_states: Mapping[str, PremiseState]
-    provenance_refs: Tuple[str, ...]
+    provenance_refs: tuple[str, ...]
     entailment_basis: str
     entailment_status: EntailmentStatus
-    dependency_refs: Tuple[str, ...] = ()
-    assumptions: Tuple[str, ...] = ()
-    excluded_candidates: Tuple[str, ...] = ()
+    dependency_refs: tuple[str, ...] = ()
+    assumptions: tuple[str, ...] = ()
+    excluded_candidates: tuple[str, ...] = ()
     source_ref: str = ""
     review_status: ConstraintReviewStatus = ConstraintReviewStatus.NOT_REQUIRED
-    revision_of: Optional[str] = None
+    revision_of: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,9 @@ def evaluate_constraint(constraint: Constraint) -> ConstraintEvaluation:
             "PREMISES_REQUIRED",
             "A valid narrowing constraint requires identified supporting premises.",
         )
-    if not constraint.provenance_refs or any(not ref.strip() for ref in constraint.provenance_refs):
+    if not constraint.provenance_refs or any(
+        not ref.strip() for ref in constraint.provenance_refs
+    ):
         return ConstraintEvaluation(
             constraint.constraint_id,
             ConstraintStatus.UNSUPPORTED,
@@ -101,7 +103,10 @@ def evaluate_constraint(constraint: Constraint) -> ConstraintEvaluation:
             "Required governance review rejected the constraint.",
         )
 
-    states = [constraint.premise_states.get(ref, PremiseState.UNKNOWN) for ref in constraint.premise_refs]
+    states = [
+        constraint.premise_states.get(ref, PremiseState.UNKNOWN)
+        for ref in constraint.premise_refs
+    ]
     if any(state is PremiseState.CONTRADICTED for state in states):
         return ConstraintEvaluation(
             constraint.constraint_id,
@@ -130,7 +135,10 @@ def evaluate_constraint(constraint: Constraint) -> ConstraintEvaluation:
             "PREMISE_UNESTABLISHED",
             "At least one required premise is unknown or missing.",
         )
-    if constraint.entailment_status is not EntailmentStatus.ESTABLISHED or not constraint.entailment_basis.strip():
+    if (
+        constraint.entailment_status is not EntailmentStatus.ESTABLISHED
+        or not constraint.entailment_basis.strip()
+    ):
         return ConstraintEvaluation(
             constraint.constraint_id,
             ConstraintStatus.UNSUPPORTED,
@@ -153,7 +161,11 @@ def evaluate_constraint(constraint: Constraint) -> ConstraintEvaluation:
     )
 
 
-def effective_exclusions(constraint: Constraint) -> Tuple[str, ...]:
+def effective_exclusions(constraint: Constraint) -> tuple[str, ...]:
     """Return exclusions only for a constraint that is currently valid."""
     evaluation = evaluate_constraint(constraint)
-    return constraint.excluded_candidates if evaluation.status is ConstraintStatus.VALID else ()
+    return (
+        constraint.excluded_candidates
+        if evaluation.status is ConstraintStatus.VALID
+        else ()
+    )

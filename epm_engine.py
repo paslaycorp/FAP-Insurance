@@ -6,10 +6,14 @@ FAP-specific implementation helpers.
 """
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 from epm_envelope import EvidentiaryEnvelope, evaluate_evidentiary_envelope
-from epm_state import EvidentiaryState, EvidentiaryStateReport, inspect_evidentiary_state
+from epm_state import (
+    EvidentiaryState,
+    EvidentiaryStateReport,
+    inspect_evidentiary_state,
+)
 
 
 EPM_ENGINE_VERSION = "epm-engine/0.1"

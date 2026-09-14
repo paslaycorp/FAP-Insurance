@@ -6,10 +6,18 @@ as evidence-availability provenance.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any
 
-from dpie_assurance import AssuranceContext, AssuranceState, Decision, FailureCode, RuleBinding, State
+from dpie_assurance import (
+    AssuranceContext,
+    AssuranceState,
+    Decision,
+    FailureCode,
+    RuleBinding,
+    State,
+)
 from epm_envelope import EvidentiaryEnvelope, evaluate_evidentiary_envelope
 from epm_fap_semantics import (
     FAPDecisionContext,

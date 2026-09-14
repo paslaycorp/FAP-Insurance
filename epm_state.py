@@ -2,14 +2,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 from dpie_assurance import State
 from epm_constraints import Constraint, ConstraintEvaluation, evaluate_constraint
 from epm_justification import CycleResult, JustificationGraph, detect_cycle
-from epm_resolution import AnswerSpaceSnapshot, AnswerSpaceValidation, validate_answer_space
-from epm_sources import EpistemicSourceRecord, SourceTypingResult, validate_source_record
-from epm_temporal import EvidenceAvailability, TemporalAvailabilityResult, assess_temporal_availability
+from epm_resolution import (
+    AnswerSpaceSnapshot,
+    AnswerSpaceValidation,
+    validate_answer_space,
+)
+from epm_sources import (
+    EpistemicSourceRecord,
+    SourceTypingResult,
+    validate_source_record,
+)
+from epm_temporal import (
+    EvidenceAvailability,
+    TemporalAvailabilityResult,
+    assess_temporal_availability,
+)
 
 
 EVIDENTIARY_STATE_SCHEMA = "epm.evidentiary-state/0.1"
@@ -20,13 +31,13 @@ class EvidentiaryState:
     state_id: str
     proposition: str
     assurance_state: State
-    sources: Tuple[EpistemicSourceRecord, ...] = ()
-    availability: Tuple[EvidenceAvailability, ...] = ()
-    constraints: Tuple[Constraint, ...] = ()
-    answer_space: Optional[AnswerSpaceSnapshot] = None
-    justification_graph: Optional[JustificationGraph] = None
-    limitations: Tuple[str, ...] = ()
-    unresolved_conditions: Tuple[str, ...] = ()
+    sources: tuple[EpistemicSourceRecord, ...] = ()
+    availability: tuple[EvidenceAvailability, ...] = ()
+    constraints: tuple[Constraint, ...] = ()
+    answer_space: AnswerSpaceSnapshot | None = None
+    justification_graph: JustificationGraph | None = None
+    limitations: tuple[str, ...] = ()
+    unresolved_conditions: tuple[str, ...] = ()
     schema_version: str = EVIDENTIARY_STATE_SCHEMA
 
 
@@ -34,17 +45,17 @@ class EvidentiaryState:
 class EvidentiaryStateReport:
     schema_version: str
     state_id: str
-    structural_issues: Tuple[str, ...]
-    source_results: Tuple[SourceTypingResult, ...]
-    availability_results: Tuple[TemporalAvailabilityResult, ...]
-    constraint_results: Tuple[ConstraintEvaluation, ...]
-    answer_space_result: Optional[AnswerSpaceValidation]
-    graph_cycle_result: Optional[CycleResult]
-    limitations: Tuple[str, ...]
-    unresolved_conditions: Tuple[str, ...]
+    structural_issues: tuple[str, ...]
+    source_results: tuple[SourceTypingResult, ...]
+    availability_results: tuple[TemporalAvailabilityResult, ...]
+    constraint_results: tuple[ConstraintEvaluation, ...]
+    answer_space_result: AnswerSpaceValidation | None
+    graph_cycle_result: CycleResult | None
+    limitations: tuple[str, ...]
+    unresolved_conditions: tuple[str, ...]
 
 
-def _duplicate_ids(values: Tuple[str, ...]) -> Tuple[str, ...]:
+def _duplicate_ids(values: tuple[str, ...]) -> tuple[str, ...]:
     seen = set()
     duplicates = []
     for value in values:
@@ -73,18 +84,34 @@ def inspect_evidentiary_state(state: EvidentiaryState) -> EvidentiaryStateReport
     duplicate_sources = _duplicate_ids(tuple(source.source_id for source in state.sources))
     if duplicate_sources:
         issues.append("DUPLICATE_SOURCE_IDS:" + ",".join(duplicate_sources))
-    duplicate_constraints = _duplicate_ids(tuple(constraint.constraint_id for constraint in state.constraints))
+    duplicate_constraints = _duplicate_ids(
+        tuple(constraint.constraint_id for constraint in state.constraints)
+    )
     if duplicate_constraints:
         issues.append("DUPLICATE_CONSTRAINT_IDS:" + ",".join(duplicate_constraints))
 
     source_results = tuple(validate_source_record(source) for source in state.sources)
-    constraint_results = tuple(evaluate_constraint(constraint) for constraint in state.constraints)
-    answer_result = validate_answer_space(state.answer_space) if state.answer_space is not None else None
-    graph_cycle = detect_cycle(state.justification_graph) if state.justification_graph is not None else None
+    constraint_results = tuple(
+        evaluate_constraint(constraint) for constraint in state.constraints
+    )
+    answer_result = (
+        validate_answer_space(state.answer_space)
+        if state.answer_space is not None
+        else None
+    )
+    graph_cycle = (
+        detect_cycle(state.justification_graph)
+        if state.justification_graph is not None
+        else None
+    )
 
     state_at = state.assurance_state.context.at
     primary_evidence_id = state.assurance_state.state_id
-    matching = [record for record in state.availability if record.evidence_id == primary_evidence_id]
+    matching = [
+        record
+        for record in state.availability
+        if record.evidence_id == primary_evidence_id
+    ]
     availability_results = [
         assess_temporal_availability(
             evidence_id=primary_evidence_id,

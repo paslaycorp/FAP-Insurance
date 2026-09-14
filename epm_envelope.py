@@ -7,10 +7,16 @@ part of the generic contract.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import FrozenSet, Mapping
 
-from dpie_assurance import Decision, PreservationProof, State, Transition, evaluate_transition
+from dpie_assurance import (
+    Decision,
+    PreservationProof,
+    State,
+    Transition,
+    evaluate_transition,
+)
 from governor import govern
 
 EPM_ENVELOPE_SCHEMA_VERSION = "epm.evidentiary-envelope/0.1"
@@ -21,7 +27,7 @@ class EvidentiaryEnvelope:
     transition_id: str
     source: State
     target: State
-    material_properties: FrozenSet[str]
+    material_properties: frozenset[str]
     preservation: Mapping[str, PreservationProof] = field(default_factory=dict)
     consequence: str = "standard"
     schema_version: str = EPM_ENVELOPE_SCHEMA_VERSION

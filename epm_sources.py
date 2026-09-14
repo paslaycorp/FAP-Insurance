@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple
 
 
 class EpistemicSourceType(str, Enum):
@@ -25,8 +24,8 @@ class EpistemicSourceRecord:
     source_id: str
     source_type: EpistemicSourceType
     producer: str
-    provenance_refs: Tuple[str, ...]
-    input_refs: Tuple[str, ...] = ()
+    provenance_refs: tuple[str, ...]
+    input_refs: tuple[str, ...] = ()
     external_origin: bool = False
 
 
@@ -42,19 +41,43 @@ def validate_source_record(record: EpistemicSourceRecord) -> SourceTypingResult:
         return SourceTypingResult(False, "SOURCE_ID_REQUIRED", "Source identity is required.")
     if not record.producer.strip():
         return SourceTypingResult(False, "PRODUCER_REQUIRED", "Source producer is required.")
-    if not record.provenance_refs or any(not ref.strip() for ref in record.provenance_refs):
-        return SourceTypingResult(False, "PROVENANCE_REQUIRED", "Typed sources require non-empty provenance references.")
-    if record.source_type is EpistemicSourceType.OBSERVATION and not record.external_origin:
-        return SourceTypingResult(False, "OBSERVATION_EXTERNAL_ORIGIN_REQUIRED", "Observation source type requires an external origin outside the current computation boundary.")
-    if record.source_type is EpistemicSourceType.EXTERNAL_ATTESTATION and not record.external_origin:
-        return SourceTypingResult(False, "ATTESTATION_EXTERNAL_ORIGIN_REQUIRED", "External attestation source type requires an external origin.")
-    return SourceTypingResult(True, "SOURCE_TYPE_VALID", "Source record preserves its declared origin type and provenance.")
+    if not record.provenance_refs or any(
+        not ref.strip() for ref in record.provenance_refs
+    ):
+        return SourceTypingResult(
+            False,
+            "PROVENANCE_REQUIRED",
+            "Typed sources require non-empty provenance references.",
+        )
+    if (
+        record.source_type is EpistemicSourceType.OBSERVATION
+        and not record.external_origin
+    ):
+        return SourceTypingResult(
+            False,
+            "OBSERVATION_EXTERNAL_ORIGIN_REQUIRED",
+            "Observation source type requires an external origin outside the current computation boundary.",
+        )
+    if (
+        record.source_type is EpistemicSourceType.EXTERNAL_ATTESTATION
+        and not record.external_origin
+    ):
+        return SourceTypingResult(
+            False,
+            "ATTESTATION_EXTERNAL_ORIGIN_REQUIRED",
+            "External attestation source type requires an external origin.",
+        )
+    return SourceTypingResult(
+        True,
+        "SOURCE_TYPE_VALID",
+        "Source record preserves its declared origin type and provenance.",
+    )
 
 
 def observation_reclassification_allowed(
     source: EpistemicSourceRecord,
     *,
-    supporting_observation: Optional[EpistemicSourceRecord] = None,
+    supporting_observation: EpistemicSourceRecord | None = None,
 ) -> SourceTypingResult:
     """Reject relabeling internal outputs as observations without new observation.
 
@@ -66,13 +89,32 @@ def observation_reclassification_allowed(
     if not current.valid:
         return current
     if source.source_type is EpistemicSourceType.OBSERVATION:
-        return SourceTypingResult(True, "ALREADY_OBSERVATION", "Source is already a valid observation record.")
+        return SourceTypingResult(
+            True,
+            "ALREADY_OBSERVATION",
+            "Source is already a valid observation record.",
+        )
     if supporting_observation is None:
-        return SourceTypingResult(False, "NEW_OBSERVATION_REQUIRED", "Internal computation, derivation, assertion, constraint, or discriminator output cannot be relabeled as observation without new external observational evidence.")
+        return SourceTypingResult(
+            False,
+            "NEW_OBSERVATION_REQUIRED",
+            "Internal computation, derivation, assertion, constraint, or discriminator output cannot be relabeled as observation without new external observational evidence.",
+        )
     support = validate_source_record(supporting_observation)
-    if not support.valid or supporting_observation.source_type is not EpistemicSourceType.OBSERVATION:
-        return SourceTypingResult(False, "VALID_OBSERVATION_REQUIRED", "Supporting evidence must itself be a valid externally originated observation.")
-    return SourceTypingResult(False, "PRESERVE_ORIGINAL_SOURCE_TYPE", "New observation may support a new evidentiary state, but it does not change the provenance type of the pre-existing source record.")
+    if (
+        not support.valid
+        or supporting_observation.source_type is not EpistemicSourceType.OBSERVATION
+    ):
+        return SourceTypingResult(
+            False,
+            "VALID_OBSERVATION_REQUIRED",
+            "Supporting evidence must itself be a valid externally originated observation.",
+        )
+    return SourceTypingResult(
+        False,
+        "PRESERVE_ORIGINAL_SOURCE_TYPE",
+        "New observation may support a new evidentiary state, but it does not change the provenance type of the pre-existing source record.",
+    )
 
 
 def computational_output_type() -> EpistemicSourceType:
