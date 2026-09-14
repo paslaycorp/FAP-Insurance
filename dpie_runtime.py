@@ -1,78 +1,77 @@
-"""FAP -> DPIE runtime adapter with explicit Governor handoff."""
+"""FAP -> EPM runtime adapter with explicit Governor handoff.
+
+The public FAP/DPIE runtime surface is preserved for compatibility. Transition
+construction and evaluation now delegate to the generic EPM evidentiary
+envelope path so domain-specific callers and generic callers share one semantic
+implementation.
+"""
 from __future__ import annotations
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Mapping, Optional
-from dpie_assurance import AssuranceContext, AssuranceState, Decision, PreservationProof, RuleBinding, State, Transition, evaluate_transition
+
+from typing import Any, Mapping
+
 from dpie_context import RequestAssuranceContext
-from governor import govern
+from epm_fap_adapter import assess_fap_via_epm_envelope
+from epm_fap_semantics import (
+    FAPDecisionContext,
+    preservation_proof_from_mapping as _proof_from_mapping,
+    source_state_from_fap as _source_state,
+    validated_temporal_bridge as _validated_temporal_bridge,
+)
 
-@dataclass(frozen=True)
-class FAPDecisionContext:
-    identity: Optional[str]
-    purpose: str
-    scope: Optional[str]
-    jurisdiction: Optional[str]
-    at: Optional[datetime]
-    rule_id: str
-    rule_version: str
-    rule_authority: str
-    consequence: str = "standard"
 
-def _source_state(evidence_id: str, verification: Mapping[str, Any], context: FAPDecisionContext) -> State:
-    verdict = str(verification.get("verdict", "UNKNOWN")).upper()
-    value = AssuranceState.PRESERVED if verdict in {"STRICT", "PROBABLE"} else AssuranceState.UNKNOWN
-    return State(evidence_id, {"integrity": value, "provenance": value, "evidence": value, "applicability": value},
-                 AssuranceContext(context.identity, context.purpose, context.scope, context.jurisdiction, context.at),
-                 RuleBinding(context.rule_id, context.rule_version, context.rule_authority, context.jurisdiction, context.at))
-
-def _proof_from_mapping(raw: Optional[Mapping[str, Any]], transition_id: str) -> Optional[PreservationProof]:
-    if not raw:
-        return None
-    return PreservationProof(property_name=str(raw.get("property_name", "applicability")), transition_id=str(raw.get("transition_id", transition_id)),
-                             rule_id=str(raw.get("rule_id", "")), rule_version=str(raw.get("rule_version", "")), authority=str(raw.get("authority", "")),
-                             evidence_refs=tuple(str(v) for v in raw.get("evidence_refs", ())), valid=bool(raw.get("valid", False)), reason=str(raw.get("reason", "")),
-                             source_purpose=raw.get("source_purpose"), target_purpose=raw.get("target_purpose"), source_scope=raw.get("source_scope"), target_scope=raw.get("target_scope"),
-                             source_jurisdiction=raw.get("source_jurisdiction"), target_jurisdiction=raw.get("target_jurisdiction"))
-
-def _validated_temporal_bridge(raw: Any) -> bool:
-    return (
-        isinstance(raw, Mapping)
-        and raw.get("validated") is True
-        and isinstance(raw.get("basis"), str)
-        and bool(raw["basis"].strip())
+def assess_fap_transition(
+    *,
+    evidence_id: str,
+    verification: Mapping[str, Any],
+    source_context: FAPDecisionContext,
+    target_context: FAPDecisionContext,
+    transition_id: str,
+    preservation_proof: Any = None,
+) -> Mapping[str, Any]:
+    """Compatibility entry point routed through the generic EPM envelope."""
+    return assess_fap_via_epm_envelope(
+        evidence_id=evidence_id,
+        verification=verification,
+        source_context=source_context,
+        target_context=target_context,
+        transition_id=transition_id,
+        preservation_proof=preservation_proof,
     )
 
-def assess_fap_transition(*, evidence_id: str, verification: Mapping[str, Any], source_context: FAPDecisionContext, target_context: FAPDecisionContext, transition_id: str, preservation_proof: Any = None) -> Mapping[str, Any]:
-    evidence_available_at = verification.get("evidence_available_at")
-    temporal_bridge = verification.get("temporal_bridge")
-    if isinstance(evidence_available_at, datetime) and source_context.at is not None and evidence_available_at > source_context.at and not _validated_temporal_bridge(temporal_bridge):
-        return {
-            "transition_id": transition_id,
-            "property": "applicability",
-            "state": AssuranceState.INVALIDATED.value,
-            "decision": Decision.DENY.value if target_context.consequence.lower() == "critical" else Decision.QUARANTINE.value,
-            "failure": "TEMPORAL_MISMATCH",
-            "reason": "Evidence became available after the source temporal context and no validated temporal bridge was supplied.",
-            "rule_id": target_context.rule_id,
-            "rule_version": target_context.rule_version,
-            "source_evidence_id": evidence_id,
-            "fail_closed": True,
-        }
-    source = _source_state(evidence_id, verification, source_context)
-    target = State(f"{evidence_id}:target", {"applicability": AssuranceState.PRESERVED}, AssuranceContext(target_context.identity, target_context.purpose, target_context.scope, target_context.jurisdiction, target_context.at),
-                   RuleBinding(target_context.rule_id, target_context.rule_version, target_context.rule_authority, target_context.jurisdiction, target_context.at))
-    proof = _proof_from_mapping(preservation_proof, transition_id) if isinstance(preservation_proof, Mapping) else preservation_proof
-    material = any((source_context.purpose != target_context.purpose, source_context.scope != target_context.scope, source_context.jurisdiction != target_context.jurisdiction,
-                    source_context.at != target_context.at, source_context.rule_id != target_context.rule_id, source_context.rule_version != target_context.rule_version, source_context.rule_authority != target_context.rule_authority))
-    transition = Transition(transition_id, source, target, frozenset({"applicability"}) if material else frozenset(), {"applicability": proof} if proof is not None else {})
-    assurance = evaluate_transition(transition, "applicability", consequence=target_context.consequence)
-    decision = govern(assurance_state=assurance.state, failure=assurance.failure, consequence=target_context.consequence)
-    return {"transition_id": assurance.transition_id, "property": assurance.property_name, "state": assurance.state.value, "decision": decision.value,
-            "failure": assurance.failure.value, "reason": assurance.reason, "rule_id": assurance.rule_id, "rule_version": assurance.rule_version,
-            "source_evidence_id": evidence_id, "fail_closed": decision in {Decision.DENY, Decision.QUARANTINE}}
 
-def assess_request_context(*, evidence_id: str, verification: Mapping[str, Any], context: RequestAssuranceContext) -> Mapping[str, Any]:
-    source = FAPDecisionContext(None, context.source_purpose, context.source_scope, context.source_jurisdiction, context.source_at, "carrier-default", "1", "carrier-authority", context.consequence)
-    target = FAPDecisionContext(None, context.target_purpose, context.target_scope, context.target_jurisdiction, context.target_at, context.rule_id, context.rule_version, context.rule_authority, context.consequence)
-    return assess_fap_transition(evidence_id=evidence_id, verification=verification, source_context=source, target_context=target, transition_id=f"DPIE-{evidence_id or 'PENDING'}", preservation_proof=context.preservation_proof)
+def assess_request_context(
+    *,
+    evidence_id: str,
+    verification: Mapping[str, Any],
+    context: RequestAssuranceContext,
+) -> Mapping[str, Any]:
+    source = FAPDecisionContext(
+        None,
+        context.source_purpose,
+        context.source_scope,
+        context.source_jurisdiction,
+        context.source_at,
+        "carrier-default",
+        "1",
+        "carrier-authority",
+        context.consequence,
+    )
+    target = FAPDecisionContext(
+        None,
+        context.target_purpose,
+        context.target_scope,
+        context.target_jurisdiction,
+        context.target_at,
+        context.rule_id,
+        context.rule_version,
+        context.rule_authority,
+        context.consequence,
+    )
+    return assess_fap_transition(
+        evidence_id=evidence_id,
+        verification=verification,
+        source_context=source,
+        target_context=target,
+        transition_id=f"DPIE-{evidence_id or 'PENDING'}",
+        preservation_proof=context.preservation_proof,
+    )
