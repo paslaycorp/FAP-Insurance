@@ -418,7 +418,9 @@ async def _process_single_claim(
         envelope.audit_record_hash = audit_record.record_hash
         envelope.fap_core_response = fap_result
 
-        if dpie_result["decision"] in {"DENY", "QUARANTINE", "DEFER"}:
+        if dpie_result["decision"] in {"DENY", "QUARANTINE"} or bool(
+            dpie_result.get("fail_closed", False)
+        ):
             status_code = 403 if dpie_result["decision"] == "DENY" else 409
             raise HTTPException(
                 status_code=status_code,
