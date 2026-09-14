@@ -6,9 +6,10 @@ truth score or reinterpret EPM assurance semantics.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Mapping
+from typing import Any
 
 from logger import log
 
