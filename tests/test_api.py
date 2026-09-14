@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from api import app
 from config import SETTINGS
+from epm import EPM_ENGINE_VERSION
 
 
 @pytest.fixture(scope="module")
@@ -37,8 +38,15 @@ def _valid_payload(**overrides) -> dict:
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "healthy"
-    assert response.json()["service"] == "fap-insurance"
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["service"] == "fap-insurance"
+    assert data["epm_engine_version"] == EPM_ENGINE_VERSION
+    assert "git_commit" in data
+    assert "git_branch" in data
+    assert "git_repo_slug" in data
+    assert "render_service_id" in data
+    assert "render_instance_id" in data
 
 
 def test_verify_missing_key(client):
