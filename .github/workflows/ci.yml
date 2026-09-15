@@ -42,7 +42,7 @@ jobs:
         run: python -m compileall -q ops/render_release.py
       - name: Verify standalone EPM package
         run: |
-          python -c "import epm; print(epm.__file__); assert epm.EPM_ENGINE_VERSION == 'epm-engine/0.1.1'"
+          python -c "import epm; print(epm.__file__); assert epm.EPM_ENGINE_VERSION == 'epm-engine/0.1.2'"
           python -c "import epm; assert 'site-packages' in epm.__file__"
       - name: Import API
         run: python -c "from api import app; print(app.title)"
