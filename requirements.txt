@@ -7,8 +7,9 @@ cachetools==5.5.0
 slowapi==0.1.9
 structlog==25.2.0
 
-# Standalone EPM runtime — frozen v0.1.1 release SHA
-epm-evidentiary-provenance-model @ git+https://github.com/paslaycorp/EPM---EVIDENTIARY-PROVENANCE-MODEL-.git@87903f2d53531bf28d97f1271af62b6d9b3e64be
+# Standalone EPM runtime — v0.1.2 release candidate integration pin.
+# Replace this RC SHA with the exact final v0.1.2 release SHA before merge to main.
+epm-evidentiary-provenance-model @ git+https://github.com/paslaycorp/EPM---EVIDENTIARY-PROVENANCE-MODEL-.git@ddb85828bd71132264c19fc044b81d32b08d9d51
 
 # Testing
 pytest==8.3.0
