@@ -26,7 +26,7 @@ EXPECTED_HEALTH_CHECK_PATH = "/health"
 EXPECTED_REPO_SLUG = "paslaycorp/FAP-Insurance"
 EXPECTED_BRANCH = "main"
 EXPECTED_FAP_VERSION = "0.3.0-grand-slam"
-EXPECTED_EPM_VERSION = "epm-engine/0.1.1"
+EXPECTED_EPM_VERSION = "epm-engine/0.1.2"
 TERMINAL_FAILURES = {
     "build_failed",
     "canceled",

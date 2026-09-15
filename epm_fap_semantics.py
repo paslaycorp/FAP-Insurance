@@ -71,7 +71,16 @@ def source_state_from_fap(
 def preservation_proof_from_mapping(
     raw: Mapping[str, Any] | None,
     transition_id: str,
+    *,
+    boundary_validated: bool = False,
 ) -> PreservationProof | None:
+    """Translate raw FAP proof data without allowing it to grant itself trust.
+
+    ``boundary_validated`` is an adapter-side trust result, not an input field.
+    A raw mapping may contain a ``boundary_validated`` key, but that claim is
+    deliberately ignored. Callers may set this keyword only after a legitimate
+    ingestion-boundary validation procedure has succeeded.
+    """
     if not raw:
         return None
     return PreservationProof(
@@ -82,6 +91,7 @@ def preservation_proof_from_mapping(
         authority=str(raw.get("authority", "")),
         evidence_refs=tuple(str(v) for v in raw.get("evidence_refs", ())),
         valid=bool(raw.get("valid", False)),
+        boundary_validated=boundary_validated,
         reason=str(raw.get("reason", "")),
         source_purpose=raw.get("source_purpose"),
         target_purpose=raw.get("target_purpose"),
