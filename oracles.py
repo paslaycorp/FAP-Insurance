@@ -1,6 +1,8 @@
 """FAP-Insurance external oracle adapters."""
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -114,8 +116,18 @@ class FapCoreUnavailable(RuntimeError):
 class FapCoreClient:
     """Transport adapter for the existing FAP-Core verification service."""
 
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        health_success_ttl_seconds: float = 10.0,
+        health_failure_ttl_seconds: float = 30.0,
+    ):
         self.client = client
+        self.health_success_ttl_seconds = health_success_ttl_seconds
+        self.health_failure_ttl_seconds = health_failure_ttl_seconds
+        self._health_cache: dict[str, tuple[bool, float]] = {}
+        self._health_lock = asyncio.Lock()
 
     async def verify(self, base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -128,10 +140,46 @@ class FapCoreClient:
         except Exception as exc:
             raise FapCoreUnavailable(str(exc)) from exc
 
+    def _cached_health(self, key: str, now: float) -> bool | None:
+        cached = self._health_cache.get(key)
+        if cached is None:
+            return None
+        result, expires_at = cached
+        if now >= expires_at:
+            self._health_cache.pop(key, None)
+            return None
+        return result
+
     async def health(self, base_url: str) -> bool:
-        try:
-            response = await self.client.get(f"{base_url.rstrip('/')}/health")
-            response.raise_for_status()
-            return True
-        except Exception:
-            return False
+        """Return bounded dependency health without amplifying readiness probes.
+
+        Render and release-controller readiness probes can arrive concurrently and
+        repeatedly. A short success cache and a longer failure cache preserve the
+        latest observed state while preventing each local readiness request from
+        becoming another external FAP-Core request. Failure is never upgraded to
+        success by the cache; after the failure TTL expires the dependency is
+        probed again so recovery can be observed.
+        """
+        key = base_url.rstrip("/")
+        now = time.monotonic()
+        cached = self._cached_health(key, now)
+        if cached is not None:
+            return cached
+
+        async with self._health_lock:
+            now = time.monotonic()
+            cached = self._cached_health(key, now)
+            if cached is not None:
+                return cached
+
+            try:
+                response = await self.client.get(f"{key}/health")
+                response.raise_for_status()
+                result = True
+                ttl = self.health_success_ttl_seconds
+            except Exception:
+                result = False
+                ttl = self.health_failure_ttl_seconds
+
+            self._health_cache[key] = (result, time.monotonic() + max(0.0, ttl))
+            return result
