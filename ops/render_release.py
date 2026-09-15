@@ -22,6 +22,7 @@ import httpx
 API_BASE = "https://api.render.com/v1"
 DEFAULT_SERVICE_ID = "srv-d9fp2l3bc2fs73blamug"
 DEFAULT_HEALTH_URL = "https://fap-core.onrender.com/health"
+EXPECTED_HEALTH_CHECK_PATH = "/health"
 EXPECTED_REPO_SLUG = "paslaycorp/FAP-Insurance"
 EXPECTED_BRANCH = "main"
 EXPECTED_FAP_VERSION = "0.3.0-grand-slam"
@@ -49,6 +50,7 @@ class ReleaseAttestation:
     render_deploy_id: str | None
     render_deploy_sha: str | None
     render_status: str | None
+    render_health_check_path: str | None
     runtime_health: dict[str, Any] | None
     workflow_url: str | None
     verified_at: str
@@ -90,6 +92,13 @@ class RenderAPI:
             "PATCH",
             f"/services/{self.service_id}",
             json={"autoDeploy": "no"},
+        )
+
+    def set_health_check_path(self, path: str) -> dict[str, Any]:
+        return self._request(
+            "PATCH",
+            f"/services/{self.service_id}",
+            json={"serviceDetails": {"healthCheckPath": path}},
         )
 
     @staticmethod
@@ -230,6 +239,9 @@ def write_attestation(attestation: ReleaseAttestation, path: str = "release-atte
             handle.write(f"- EPM pin: `{attestation.epm_pin_sha}`\n")
             handle.write(f"- Render deploy: `{attestation.render_deploy_id}`\n")
             handle.write(f"- Render status: `{attestation.render_status}`\n")
+            handle.write(
+                f"- Render health check: `{attestation.render_health_check_path}`\n"
+            )
             if attestation.failure:
                 handle.write(f"- Failure: `{attestation.failure}`\n")
             if attestation.rollback_deploy_id:
@@ -259,7 +271,7 @@ def release() -> ReleaseAttestation:
     rollback_status: str | None = None
 
     attestation = ReleaseAttestation(
-        schema_version="fap.production-release-attestation/1.0",
+        schema_version="fap.production-release-attestation/1.1",
         release_sha=release_sha,
         epm_pin_sha=epm_pin,
         previous_live_deploy_id=previous_id,
@@ -267,6 +279,7 @@ def release() -> ReleaseAttestation:
         render_deploy_id=None,
         render_deploy_sha=None,
         render_status=None,
+        render_health_check_path=None,
         runtime_health=None,
         workflow_url=workflow_url(),
         verified_at=datetime.now(timezone.utc).isoformat(),
@@ -282,6 +295,18 @@ def release() -> ReleaseAttestation:
         repo = str(service.get("repo", ""))
         if not repo.endswith("/paslaycorp/FAP-Insurance"):
             raise RuntimeError(f"Unexpected Render repository binding: {repo!r}")
+
+        service_details = service.get("serviceDetails") or {}
+        if service_details.get("healthCheckPath") != EXPECTED_HEALTH_CHECK_PATH:
+            service = api.set_health_check_path(EXPECTED_HEALTH_CHECK_PATH)
+            service_details = service.get("serviceDetails") or {}
+        configured_health_path = service_details.get("healthCheckPath")
+        if configured_health_path != EXPECTED_HEALTH_CHECK_PATH:
+            raise RuntimeError(
+                "Render health check path was not established as "
+                f"{EXPECTED_HEALTH_CHECK_PATH!r}: {configured_health_path!r}"
+            )
+        attestation.render_health_check_path = configured_health_path
 
         # GitHub Actions becomes the sole deployment authority. This removes the
         # broken and unaudited provider webhook from the production trust path.

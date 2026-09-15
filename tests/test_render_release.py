@@ -10,6 +10,7 @@ from ops.render_release import (
     EXPECTED_BRANCH,
     EXPECTED_EPM_VERSION,
     EXPECTED_FAP_VERSION,
+    EXPECTED_HEALTH_CHECK_PATH,
     EXPECTED_REPO_SLUG,
     RenderAPI,
     deploy_commit_sha,
@@ -60,6 +61,24 @@ def test_list_deploys_unwraps_render_cursor_shape():
     )
     api = RenderAPI("token", "srv-1", client=client)
     assert api.list_deploys() == [{"id": "dep-1", "status": "live"}]
+
+
+def test_set_health_check_path_uses_bounded_service_patch():
+    payload = {
+        "id": "srv-1",
+        "serviceDetails": {"healthCheckPath": EXPECTED_HEALTH_CHECK_PATH},
+    }
+    client = FakeClient([FakeResponse(payload)])
+    api = RenderAPI("token", "srv-1", client=client)
+
+    assert api.set_health_check_path(EXPECTED_HEALTH_CHECK_PATH) == payload
+    assert client.requests == [
+        (
+            "PATCH",
+            "/services/srv-1",
+            {"json": {"serviceDetails": {"healthCheckPath": "/health"}}},
+        )
+    ]
 
 
 def test_wait_for_live_accepts_only_live():
