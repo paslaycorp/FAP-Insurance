@@ -171,6 +171,52 @@ jobs:
           pip install pytest==8.3.0
           pytest -q tests/test_render_release.py --tb=short
 
+      - name: Enforce Render health check path
+        if: steps.freshness.outputs.eligible == 'true'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          service_id = os.environ["RENDER_SERVICE_ID"]
+          token = os.environ["RENDER_API_KEY"]
+          url = f"https://api.render.com/v1/services/{service_id}"
+          headers = {
+              "Accept": "application/json",
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+          }
+
+          def request(method, payload=None):
+              body = None if payload is None else json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(url, data=body, headers=headers, method=method)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+
+          service = request("GET")
+          if service.get("branch") != "main":
+              raise SystemExit(f"Unexpected Render branch: {service.get('branch')!r}")
+          repo = str(service.get("repo", ""))
+          if not repo.endswith("/paslaycorp/FAP-Insurance"):
+              raise SystemExit(f"Unexpected Render repository binding: {repo!r}")
+
+          request("PATCH", {"serviceDetails": {"healthCheckPath": "/health"}})
+          service = request("GET")
+          actual = (service.get("serviceDetails") or {}).get("healthCheckPath")
+          if actual != "/health":
+              raise SystemExit(f"Render healthCheckPath is {actual!r}, expected '/health'")
+
+          print("Render healthCheckPath verified: /health")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write("## Render service configuration\n\n")
+                  handle.write("- Health check path: `/health`\n")
+                  handle.write(f"- Service ID: `{service_id}`\n")
+          PY
+
       - name: Deploy exact SHA and prove runtime
         if: steps.freshness.outputs.eligible == 'true'
         env:
