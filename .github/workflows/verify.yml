@@ -7,6 +7,7 @@ on:
 
 jobs:
   test:
+    name: Production Verification
     runs-on: ubuntu-latest
     env:
       FAP_API_KEY: ci-test-key
