@@ -1,0 +1,30 @@
+{
+  "epm_pin_sha": "bb0559ddb8eff7f78acc432c0334ce7596c1045c",
+  "failure": null,
+  "previous_live_deploy_id": "dep-dalosfu1egvs73fc5mb0",
+  "previous_live_sha": "3fac573ed2b40f328cbf4325f08bf9645e1babcf",
+  "release_sha": "3fac573ed2b40f328cbf4325f08bf9645e1babcf",
+  "render_deploy_id": "dep-dalp0hoae00c73c5lk70",
+  "render_deploy_sha": "3fac573ed2b40f328cbf4325f08bf9645e1babcf",
+  "render_health_check_path": "/health",
+  "render_status": "live",
+  "result": "verified",
+  "rollback_deploy_id": null,
+  "rollback_status": null,
+  "runtime_health": {
+    "epm_engine_version": "epm-engine/0.1.2",
+    "fap_core_connected": true,
+    "git_branch": "main",
+    "git_commit": "3fac573ed2b40f328cbf4325f08bf9645e1babcf",
+    "git_repo_slug": "paslaycorp/FAP-Insurance",
+    "render_instance_id": "srv-d9fp2l3bc2fs73blamug-hibernate-8655d555d7-xbxk4",
+    "render_service_id": "srv-d9fp2l3bc2fs73blamug",
+    "service": "fap-insurance",
+    "status": "healthy",
+    "timestamp": "2026-09-17T07:01:57.696608Z",
+    "version": "0.3.0-grand-slam"
+  },
+  "schema_version": "fap.production-release-attestation/1.1",
+  "verified_at": "2026-09-17T07:01:57.733491+00:00",
+  "workflow_url": "https://github.com/paslaycorp/FAP-Insurance/actions/runs/34962257479"
+}
