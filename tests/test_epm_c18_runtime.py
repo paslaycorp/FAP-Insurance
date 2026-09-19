@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 
 from dpie_runtime import FAPDecisionContext, assess_fap_transition
+from epm import PreservationProof
 
 UTC = timezone.utc
 
@@ -20,22 +21,23 @@ def _context(at: datetime) -> FAPDecisionContext:
     )
 
 
-def _proof(transition_id: str) -> dict:
-    return {
-        "property_name": "applicability",
-        "transition_id": transition_id,
-        "rule_id": "carrier-default",
-        "rule_version": "1",
-        "authority": "carrier-authority",
-        "evidence_refs": ["E-C18"],
-        "valid": True,
-        "source_purpose": "claim-adjustment",
-        "target_purpose": "claim-adjustment",
-        "source_scope": "auto",
-        "target_scope": "auto",
-        "source_jurisdiction": "TX",
-        "target_jurisdiction": "TX",
-    }
+def _proof(transition_id: str) -> PreservationProof:
+    return PreservationProof(
+        property_name="applicability",
+        transition_id=transition_id,
+        rule_id="carrier-default",
+        rule_version="1",
+        authority="carrier-authority",
+        evidence_refs=("E-C18",),
+        valid=True,
+        boundary_validated=True,
+        source_purpose="claim-adjustment",
+        target_purpose="claim-adjustment",
+        source_scope="auto",
+        target_scope="auto",
+        source_jurisdiction="TX",
+        target_jurisdiction="TX",
+    )
 
 
 def test_epm_c18_temporal_crossing_without_preservation_fails_closed():
@@ -58,7 +60,7 @@ def test_epm_c18_temporal_crossing_without_preservation_fails_closed():
 
 
 def test_epm_c18_temporal_crossing_requires_explicit_preservation():
-    """An explicit valid preservation relation permits a material time crossing."""
+    """A boundary-validated preservation relation permits a material time crossing."""
     source_at = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
     target_at = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
     transition_id = "C18-PRESERVED"
