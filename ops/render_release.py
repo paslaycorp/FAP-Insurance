@@ -22,7 +22,8 @@ import httpx
 API_BASE = "https://api.render.com/v1"
 DEFAULT_SERVICE_ID = "srv-d9fp2l3bc2fs73blamug"
 DEFAULT_HEALTH_URL = "https://fap-core.onrender.com/health"
-EXPECTED_HEALTH_CHECK_PATH = "/health"
+DEFAULT_FAP_CORE_HEALTH_URL = "https://fap-core-odm4.onrender.com/health"
+EXPECTED_HEALTH_CHECK_PATH = "/live"
 EXPECTED_REPO_SLUG = "paslaycorp/FAP-Insurance"
 EXPECTED_BRANCH = "main"
 EXPECTED_FAP_VERSION = "0.3.0-grand-slam"
@@ -52,11 +53,13 @@ class ReleaseAttestation:
     render_status: str | None
     render_health_check_path: str | None
     runtime_health: dict[str, Any] | None
+    dependency_preflight: dict[str, Any] | None
     workflow_url: str | None
     verified_at: str
     result: str
     rollback_deploy_id: str | None = None
     rollback_status: str | None = None
+    rollback_runtime_health: dict[str, Any] | None = None
     failure: str | None = None
 
 
@@ -177,6 +180,55 @@ def read_epm_pin(path: str | Path = "requirements.txt") -> str:
     return match.group("sha")
 
 
+def verify_dependency_preflight(
+    health_url: str,
+    *,
+    max_attempts: int = 3,
+    required_successes: int = 2,
+    interval_seconds: int = 15,
+    client: httpx.Client | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Require bounded, repeatable FAP-Core readiness before production mutation."""
+    http = client or httpx.Client(timeout=20.0)
+    observations: list[dict[str, Any]] = []
+    consecutive = 0
+
+    for attempt in range(1, max_attempts + 1):
+        observation: dict[str, Any] = {"attempt": attempt}
+        try:
+            response = http.get(health_url, headers={"Cache-Control": "no-cache"})
+            observation["status_code"] = response.status_code
+            if response.status_code == 200:
+                data = response.json()
+                observation["payload"] = data
+                healthy = isinstance(data, dict) and data.get("status") == "healthy"
+                observation["healthy"] = healthy
+                consecutive = consecutive + 1 if healthy else 0
+            else:
+                observation["healthy"] = False
+                consecutive = 0
+        except Exception as exc:  # noqa: BLE001 - preserve diagnostic boundary
+            observation["healthy"] = False
+            observation["error"] = str(exc)
+            consecutive = 0
+
+        observations.append(observation)
+        if consecutive >= required_successes:
+            return {
+                "verified": True,
+                "required_successes": required_successes,
+                "observations": observations,
+            }
+        if attempt < max_attempts:
+            sleep(interval_seconds)
+
+    raise RuntimeError(
+        "FAP-Core dependency preflight failed before deployment; "
+        f"observations={observations}"
+    )
+
+
 def verify_runtime_health(
     health_url: str,
     release_sha: str,
@@ -214,6 +266,46 @@ def verify_runtime_health(
         sleep(interval_seconds)
 
     raise RuntimeError(f"Runtime health could not prove release {release_sha}: {last_problem}")
+
+
+def verify_rollback_health(
+    health_url: str,
+    expected_sha: str,
+    *,
+    timeout_seconds: int = 120,
+    interval_seconds: int = 10,
+    client: httpx.Client | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Prove the rolled-back runtime is the prior SHA and dependency-ready."""
+    http = client or httpx.Client(timeout=20.0)
+    deadline = time.monotonic() + timeout_seconds
+    last_problem = "no response"
+
+    while time.monotonic() < deadline:
+        try:
+            response = http.get(health_url, headers={"Cache-Control": "no-cache"})
+            response.raise_for_status()
+            data = response.json()
+            checks = {
+                "status": data.get("status") == "healthy",
+                "service": data.get("service") == "fap-insurance",
+                "commit": data.get("git_commit") == expected_sha,
+                "branch": data.get("git_branch") == EXPECTED_BRANCH,
+                "repo": data.get("git_repo_slug") == EXPECTED_REPO_SLUG,
+                "fap_core": data.get("fap_core_connected") is True,
+            }
+            if all(checks.values()):
+                return data
+            failed = [name for name, ok in checks.items() if not ok]
+            last_problem = f"rollback health mismatch: {', '.join(failed)}; payload={data}"
+        except Exception as exc:  # noqa: BLE001 - bounded retry for rollback proof
+            last_problem = str(exc)
+        sleep(interval_seconds)
+
+    raise RuntimeError(
+        f"Rollback runtime could not prove prior release {expected_sha}: {last_problem}"
+    )
 
 
 def workflow_url() -> str | None:
@@ -260,6 +352,7 @@ def release() -> ReleaseAttestation:
     release_sha = require_env("RELEASE_SHA")
     service_id = os.getenv("RENDER_SERVICE_ID", DEFAULT_SERVICE_ID)
     health_url = os.getenv("PRODUCTION_HEALTH_URL", DEFAULT_HEALTH_URL)
+    fap_core_health_url = os.getenv("FAP_CORE_HEALTH_URL", DEFAULT_FAP_CORE_HEALTH_URL)
     epm_pin = read_epm_pin()
     api = RenderAPI(token, service_id)
 
@@ -281,6 +374,7 @@ def release() -> ReleaseAttestation:
         render_status=None,
         render_health_check_path=None,
         runtime_health=None,
+        dependency_preflight=None,
         workflow_url=workflow_url(),
         verified_at=datetime.now(timezone.utc).isoformat(),
         result="started",
@@ -295,6 +389,11 @@ def release() -> ReleaseAttestation:
         repo = str(service.get("repo", ""))
         if not repo.endswith("/paslaycorp/FAP-Insurance"):
             raise RuntimeError(f"Unexpected Render repository binding: {repo!r}")
+
+        # Prove the canonical downstream dependency before mutating production.
+        attestation.dependency_preflight = verify_dependency_preflight(
+            fap_core_health_url
+        )
 
         service_details = service.get("serviceDetails") or {}
         if service_details.get("healthCheckPath") != EXPECTED_HEALTH_CHECK_PATH:
@@ -351,6 +450,15 @@ def release() -> ReleaseAttestation:
                 if rollback_id:
                     rollback_live = wait_for_live(api, rollback_id)
                     rollback_status = str(rollback_live.get("status"))
+                    try:
+                        attestation.rollback_runtime_health = verify_rollback_health(
+                            health_url,
+                            previous_sha,
+                        )
+                    except Exception as rollback_health_exc:  # noqa: BLE001
+                        rollback_status = (
+                            f"{rollback_status}; health-unproven: {rollback_health_exc}"
+                        )
                 else:
                     rollback_status = "rollback-requested"
             except Exception as rollback_exc:  # noqa: BLE001 - preserve both failures
