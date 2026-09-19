@@ -35,6 +35,15 @@ def _valid_payload(**overrides) -> dict:
     return base
 
 
+def test_live_is_process_liveness_only(client):
+    response = client.get("/live")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["service"] == "fap-insurance"
+    assert data["version"] == SETTINGS.VERSION
+
+
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200
