@@ -19,6 +19,7 @@ from dpie_assurance import (
 )
 from dpie_composition import evaluate_composition
 from dpie_runtime import FAPDecisionContext, assess_fap_transition
+from epm import PreservationProof
 
 UTC = timezone.utc
 
@@ -156,27 +157,29 @@ def test_epm_c14_authorization_does_not_follow_epistemic_validity_alone():
     assert blocked["failure"] == "MISAPPLICATION"
     assert blocked["fail_closed"] is True
 
+    proof = PreservationProof(
+        property_name="applicability",
+        transition_id="C14-PERMITTED",
+        rule_id="carrier-default",
+        rule_version="1",
+        authority="carrier-authority",
+        evidence_refs=("E-C14",),
+        valid=True,
+        boundary_validated=True,
+        source_purpose="claim-adjustment",
+        target_purpose="litigation-discovery",
+        source_scope="auto",
+        target_scope="auto",
+        source_jurisdiction="TX",
+        target_jurisdiction="TX",
+    )
     permitted = assess_fap_transition(
         evidence_id="E-C14",
         verification={"verdict": "STRICT"},
         source_context=source,
         target_context=target,
         transition_id="C14-PERMITTED",
-        preservation_proof={
-            "property_name": "applicability",
-            "transition_id": "C14-PERMITTED",
-            "rule_id": "carrier-default",
-            "rule_version": "1",
-            "authority": "carrier-authority",
-            "evidence_refs": ["E-C14"],
-            "valid": True,
-            "source_purpose": "claim-adjustment",
-            "target_purpose": "litigation-discovery",
-            "source_scope": "auto",
-            "target_scope": "auto",
-            "source_jurisdiction": "TX",
-            "target_jurisdiction": "TX",
-        },
+        preservation_proof=proof,
     )
     assert permitted["state"] == "PRESERVED"
     assert permitted["decision"] == "AUTHORIZED"
