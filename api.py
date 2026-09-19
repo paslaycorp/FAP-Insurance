@@ -462,6 +462,17 @@ async def _process_single_claim(
         clear_context()
 
 
+@app.get("/live")
+async def live():
+    """Process liveness only; intentionally performs no downstream dependency probe."""
+    return {
+        "status": "healthy",
+        "service": "fap-insurance",
+        "version": SETTINGS.VERSION,
+        "timestamp": datetime.now(timezone.utc),
+    }
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health():
     fap_ok = await app.state.fap_client.health(config.FAP_CORE_URL)
