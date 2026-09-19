@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from dpie_assurance import AssuranceContext, AssuranceState, RuleBinding, State
 from dpie_runtime import FAPDecisionContext, assess_fap_transition
+from epm import PreservationProof
 from epm_envelope import EvidentiaryEnvelope, evaluate_evidentiary_envelope
 from epm_fap_adapter import assess_fap_via_epm_envelope
 
@@ -89,24 +90,25 @@ def test_fap_adapter_matches_frozen_runtime_for_material_misapplication():
     assert generic["decision"] == "QUARANTINE"
 
 
-def test_fap_adapter_matches_frozen_runtime_for_valid_preservation():
+def test_fap_adapter_matches_runtime_for_boundary_validated_preservation():
     source = _context()
     target = _context(purpose="litigation-discovery")
-    proof = {
-        "property_name": "applicability",
-        "transition_id": "T-VNEXT-PRESERVED",
-        "rule_id": "carrier-default",
-        "rule_version": "1",
-        "authority": "carrier-authority",
-        "evidence_refs": ["E-VNEXT-PRESERVED"],
-        "valid": True,
-        "source_purpose": "claim-verification",
-        "target_purpose": "litigation-discovery",
-        "source_scope": "claim",
-        "target_scope": "claim",
-        "source_jurisdiction": "TX",
-        "target_jurisdiction": "TX",
-    }
+    proof = PreservationProof(
+        property_name="applicability",
+        transition_id="T-VNEXT-PRESERVED",
+        rule_id="carrier-default",
+        rule_version="1",
+        authority="carrier-authority",
+        evidence_refs=("E-VNEXT-PRESERVED",),
+        valid=True,
+        boundary_validated=True,
+        source_purpose="claim-verification",
+        target_purpose="litigation-discovery",
+        source_scope="claim",
+        target_scope="claim",
+        source_jurisdiction="TX",
+        target_jurisdiction="TX",
+    )
     kwargs = {
         "evidence_id": "E-VNEXT-PRESERVED",
         "verification": {"verdict": "STRICT"},
