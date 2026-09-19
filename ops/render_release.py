@@ -23,6 +23,7 @@ API_BASE = "https://api.render.com/v1"
 DEFAULT_SERVICE_ID = "srv-d9fp2l3bc2fs73blamug"
 DEFAULT_HEALTH_URL = "https://fap-core.onrender.com/health"
 DEFAULT_FAP_CORE_HEALTH_URL = "https://fap-core-odm4.onrender.com/health"
+LEGACY_HEALTH_CHECK_PATH = "/health"
 EXPECTED_HEALTH_CHECK_PATH = "/live"
 EXPECTED_REPO_SLUG = "paslaycorp/FAP-Insurance"
 EXPECTED_BRANCH = "main"
@@ -362,9 +363,11 @@ def release() -> ReleaseAttestation:
     deploy_id: str | None = None
     rollback_id: str | None = None
     rollback_status: str | None = None
+    original_health_path: str | None = None
+    health_path_restore_error: str | None = None
 
     attestation = ReleaseAttestation(
-        schema_version="fap.production-release-attestation/1.1",
+        schema_version="fap.production-release-attestation/1.2",
         release_sha=release_sha,
         epm_pin_sha=epm_pin,
         previous_live_deploy_id=previous_id,
@@ -396,16 +399,15 @@ def release() -> ReleaseAttestation:
         )
 
         service_details = service.get("serviceDetails") or {}
-        if service_details.get("healthCheckPath") != EXPECTED_HEALTH_CHECK_PATH:
-            service = api.set_health_check_path(EXPECTED_HEALTH_CHECK_PATH)
-            service_details = service.get("serviceDetails") or {}
-        configured_health_path = service_details.get("healthCheckPath")
-        if configured_health_path != EXPECTED_HEALTH_CHECK_PATH:
+        original_health_path = service_details.get("healthCheckPath")
+        if original_health_path not in {
+            LEGACY_HEALTH_CHECK_PATH,
+            EXPECTED_HEALTH_CHECK_PATH,
+        }:
             raise RuntimeError(
-                "Render health check path was not established as "
-                f"{EXPECTED_HEALTH_CHECK_PATH!r}: {configured_health_path!r}"
+                "Unexpected Render health check path before release: "
+                f"{original_health_path!r}"
             )
-        attestation.render_health_check_path = configured_health_path
 
         # GitHub Actions becomes the sole deployment authority. This removes the
         # broken and unaudited provider webhook from the production trust path.
@@ -433,6 +435,21 @@ def release() -> ReleaseAttestation:
             )
 
         attestation.runtime_health = verify_runtime_health(health_url, release_sha)
+
+        # Migrate Render's platform liveness probe only after the new runtime has
+        # proved its exact identity and dependency readiness. This avoids pointing
+        # the previous runtime at an endpoint it does not yet implement.
+        service = api.set_health_check_path(EXPECTED_HEALTH_CHECK_PATH)
+        configured_health_path = (service.get("serviceDetails") or {}).get(
+            "healthCheckPath"
+        )
+        if configured_health_path != EXPECTED_HEALTH_CHECK_PATH:
+            raise RuntimeError(
+                "Render health check path was not established as "
+                f"{EXPECTED_HEALTH_CHECK_PATH!r}: {configured_health_path!r}"
+            )
+        attestation.render_health_check_path = configured_health_path
+
         attestation.result = "verified"
         attestation.verified_at = datetime.now(timezone.utc).isoformat()
         write_attestation(attestation)
@@ -442,6 +459,17 @@ def release() -> ReleaseAttestation:
         attestation.failure = str(exc)
         attestation.result = "failed"
         attestation.verified_at = datetime.now(timezone.utc).isoformat()
+
+        # If this release attempted the liveness-path migration and then failed,
+        # restore the prior provider configuration before/with rollback.
+        if (
+            original_health_path
+            and original_health_path != EXPECTED_HEALTH_CHECK_PATH
+        ):
+            try:
+                api.set_health_check_path(original_health_path)
+            except Exception as health_path_exc:  # noqa: BLE001
+                health_path_restore_error = str(health_path_exc)
 
         if previous_id and previous_sha and previous_sha != release_sha:
             try:
@@ -463,6 +491,12 @@ def release() -> ReleaseAttestation:
                     rollback_status = "rollback-requested"
             except Exception as rollback_exc:  # noqa: BLE001 - preserve both failures
                 rollback_status = f"rollback-failed: {rollback_exc}"
+
+        if health_path_restore_error:
+            rollback_status = (
+                f"{rollback_status or 'unknown'}; "
+                f"health-path-restore-failed: {health_path_restore_error}"
+            )
 
         attestation.rollback_deploy_id = rollback_id
         attestation.rollback_status = rollback_status
