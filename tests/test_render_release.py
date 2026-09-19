@@ -15,6 +15,8 @@ from ops.render_release import (
     RenderAPI,
     deploy_commit_sha,
     read_epm_pin,
+    verify_dependency_preflight,
+    verify_rollback_health,
     verify_runtime_health,
     wait_for_live,
 )
@@ -76,7 +78,7 @@ def test_set_health_check_path_uses_bounded_service_patch():
         (
             "PATCH",
             "/services/srv-1",
-            {"json": {"serviceDetails": {"healthCheckPath": "/health"}}},
+            {"json": {"serviceDetails": {"healthCheckPath": EXPECTED_HEALTH_CHECK_PATH}}},
         )
     ]
 
@@ -116,6 +118,67 @@ def test_read_epm_pin(tmp_path):
         encoding="utf-8",
     )
     assert read_epm_pin(requirements) == sha
+
+
+def test_dependency_preflight_requires_repeatable_success():
+    client = FakeClient(
+        [
+            FakeResponse({"status": "healthy"}),
+            FakeResponse({"status": "healthy"}),
+        ]
+    )
+    proof = verify_dependency_preflight(
+        "https://fap-core.example/health",
+        max_attempts=2,
+        required_successes=2,
+        interval_seconds=0,
+        client=client,
+        sleep=lambda _: None,
+    )
+    assert proof["verified"] is True
+    assert [item["status_code"] for item in proof["observations"]] == [200, 200]
+
+
+def test_dependency_preflight_rejects_edge_429_before_deploy():
+    client = FakeClient(
+        [
+            FakeResponse({"detail": "rate limited"}, status_code=429),
+            FakeResponse({"detail": "rate limited"}, status_code=429),
+            FakeResponse({"detail": "rate limited"}, status_code=429),
+        ]
+    )
+    with pytest.raises(RuntimeError, match="dependency preflight failed"):
+        verify_dependency_preflight(
+            "https://fap-core.example/health",
+            max_attempts=3,
+            required_successes=2,
+            interval_seconds=0,
+            client=client,
+            sleep=lambda _: None,
+        )
+
+
+def test_rollback_health_proves_prior_sha_without_current_epm_version_binding():
+    sha = "7" * 40
+    payload = {
+        "status": "healthy",
+        "service": "fap-insurance",
+        "version": "older-version-is-allowed-for-rollback-proof",
+        "epm_engine_version": "older-epm-is-allowed-for-rollback-proof",
+        "git_commit": sha,
+        "git_branch": EXPECTED_BRANCH,
+        "git_repo_slug": EXPECTED_REPO_SLUG,
+        "fap_core_connected": True,
+    }
+    client = FakeClient([FakeResponse(payload)])
+    assert verify_rollback_health(
+        "https://example.test/health",
+        sha,
+        timeout_seconds=1,
+        interval_seconds=0,
+        client=client,
+        sleep=lambda _: None,
+    ) == payload
 
 
 def test_runtime_health_proves_exact_release():
