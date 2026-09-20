@@ -7,16 +7,12 @@ implementation.
 """
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from dpie_context import RequestAssuranceContext
 from epm_fap_adapter import assess_fap_via_epm_envelope
-from epm_fap_semantics import (
-    FAPDecisionContext,
-    preservation_proof_from_mapping as _proof_from_mapping,
-    source_state_from_fap as _source_state,
-    validated_temporal_bridge as _validated_temporal_bridge,
-)
+from epm_fap_semantics import FAPDecisionContext
 
 
 def assess_fap_transition(
