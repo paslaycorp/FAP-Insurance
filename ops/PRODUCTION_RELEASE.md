@@ -10,7 +10,7 @@ Render provider state is not source authority. Provider-driven auto-deploy is ou
 
 Production release is **manual exact-SHA dispatch** through `.github/workflows/release-production.yml`.
 
-A merge to `main` runs validation but does not itself authorize or dispatch production. The operator supplies the full 40-character current-main merge SHA to the Production Release workflow.
+A merge to `main` runs validation but does not itself authorize or dispatch production. The operator supplies both the full 40-character current FAP-Insurance merge SHA and the full 40-character already-live FAP-Core runtime SHA to the Production Release workflow.
 
 Manual dispatch does not bypass CI, merge provenance, current-main freshness, merge topology, runtime proof, or rollback controls.
 
@@ -25,8 +25,9 @@ A production release is accepted only when all of these statements are proven:
 5. `requirements.txt` contains a recoverable exact EPM commit pin.
 6. Render creates a deployment for the exact candidate SHA.
 7. That exact Render deployment reaches provider `live`.
-8. Runtime `/health` identifies the same Git SHA, branch, repository, expected FAP version, expected EPM engine version, and required FAP-Core connectivity.
-9. A machine-readable release attestation is emitted and retained.
+8. Before production mutation, FAP-Core `/health` identifies the exact operator-supplied Core SHA, expected repository/service, and production posture.
+9. Runtime `/health` identifies the same FAP-Insurance Git SHA, branch, repository, expected FAP/EPM versions, production posture, and authenticated FAP-Core identity matching the exact supplied Core SHA.
+10. A machine-readable release attestation is emitted and retained.
 
 A Render `live` status alone is not release proof.
 
@@ -82,6 +83,8 @@ The attestation records at minimum:
 
 - target Git SHA;
 - pinned EPM SHA;
+- exact expected FAP-Core SHA;
+- dependency preflight identity observations;
 - previously live Render deployment/SHA;
 - new Render deployment ID/SHA/status;
 - runtime health identity;
