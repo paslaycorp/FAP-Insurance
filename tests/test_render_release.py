@@ -137,6 +137,7 @@ def test_dependency_preflight_requires_repeatable_success():
     proof = verify_dependency_preflight(
         "https://fap-core.example/health",
         expected_sha,
+        "test-core-key",
         max_attempts=2,
         required_successes=2,
         interval_seconds=0,
@@ -159,6 +160,7 @@ def test_dependency_preflight_rejects_edge_429_before_deploy():
         verify_dependency_preflight(
             "https://fap-core.example/health",
             "d" * 40,
+            "test-core-key",
             max_attempts=3,
             required_successes=2,
             interval_seconds=0,
@@ -269,6 +271,7 @@ def test_dependency_preflight_rejects_wrong_runtime_identity(monkeypatch):
         verify_dependency_preflight(
             "https://fap-core.example/health",
             wanted,
+            "test-core-key",
             max_attempts=1,
             required_successes=1,
             interval_seconds=0,
@@ -308,3 +311,31 @@ def test_runtime_health_rejects_wrong_fap_core_sha(monkeypatch):
             client=client,
             sleep=lambda _: None,
         )
+
+
+def test_dependency_preflight_uses_authenticated_identity_endpoint():
+    expected_sha = "6" * 40
+    payload = {
+        "status": "healthy",
+        "service": EXPECTED_FAP_CORE_SERVICE,
+        "git_commit": expected_sha,
+        "git_repo_slug": EXPECTED_FAP_CORE_REPO,
+        "environment": EXPECTED_FAP_CORE_ENVIRONMENT,
+    }
+    client = FakeClient([FakeResponse(payload)])
+
+    verify_dependency_preflight(
+        "https://fap-core.example/auth/check",
+        expected_sha,
+        "secret-core-key",
+        max_attempts=1,
+        required_successes=1,
+        interval_seconds=0,
+        client=client,
+        sleep=lambda _: None,
+    )
+
+    method, url, kwargs = client.requests[0]
+    assert method == "GET"
+    assert url == "https://fap-core.example/auth/check"
+    assert kwargs["headers"]["Authorization"] == "Bearer secret-core-key"
