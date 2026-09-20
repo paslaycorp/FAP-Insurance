@@ -1,6 +1,8 @@
 """Explicit composition boundary for independently verified properties."""
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 from dpie_assurance import AssuranceState, Decision, FailureCode
 
 @dataclass(frozen=True)
