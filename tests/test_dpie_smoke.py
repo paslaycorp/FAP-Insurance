@@ -1,7 +1,15 @@
 """Final smoke checks for the executable assurance boundary."""
 from datetime import datetime, timezone
 
-from dpie_assurance import AssuranceContext, AssuranceState, Decision, RuleBinding, State, Transition, evaluate_transition
+from dpie_assurance import (
+    AssuranceContext,
+    AssuranceState,
+    Decision,
+    RuleBinding,
+    State,
+    Transition,
+    evaluate_transition,
+)
 
 
 def test_authentic_verified_state_does_not_authorize_changed_purpose():

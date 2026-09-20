@@ -1,7 +1,17 @@
 """Adversarial tests for the FAP -> DPIE assurance boundary."""
 from datetime import datetime, timezone
 
-from dpie_assurance import AssuranceContext, AssuranceState, Decision, FailureCode, PreservationProof, RuleBinding, State, Transition, evaluate_transition
+from dpie_assurance import (
+    AssuranceContext,
+    AssuranceState,
+    Decision,
+    FailureCode,
+    PreservationProof,
+    RuleBinding,
+    State,
+    Transition,
+    evaluate_transition,
+)
 
 
 def _state(state_id: str, *, purpose: str = "claim-verification", jurisdiction: str = "TX", at=None, rule=None):
