@@ -24,14 +24,13 @@ from epm import (
     assess_transition,
 )
 
-from epm_fap_trust import ValidatedFAPBoundary
-
 from epm_fap_semantics import (
     FAPDecisionContext,
     preservation_proof_from_mapping,
     source_state_from_fap,
     validated_temporal_bridge,
 )
+from epm_fap_trust import ValidatedFAPBoundary
 
 
 def envelope_from_fap_transition(
