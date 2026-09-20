@@ -1,14 +1,11 @@
 name: Production Release
 
 on:
-  workflow_run:
-    workflows: ["FAP-Insurance CI/CD"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       sha:
-        description: "Exact main-branch commit SHA to release; blank means current main"
-        required: false
+        description: "Exact merged main-branch commit SHA to release"
+        required: true
         type: string
 
 permissions:
@@ -23,11 +20,7 @@ concurrency:
 
 jobs:
   release:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: production
       url: https://fap-core.onrender.com
@@ -42,16 +35,9 @@ jobs:
         id: target
         env:
           DISPATCH_SHA: ${{ inputs.sha }}
-          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
-            sha="${WORKFLOW_SHA}"
-          elif [[ -n "${DISPATCH_SHA:-}" ]]; then
-            sha="${DISPATCH_SHA}"
-          else
-            sha="${GITHUB_SHA}"
-          fi
+          sha="${DISPATCH_SHA:-}"
           if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Invalid release SHA: $sha" >&2
             exit 1
@@ -133,8 +119,8 @@ jobs:
                   handle.write(f"- Merge SHA: `{sha}`\n")
           PY
 
-      - name: Prove CI on manual dispatch
-        if: steps.freshness.outputs.eligible == 'true' && github.event_name == 'workflow_dispatch'
+      - name: Prove CI for exact candidate
+        if: steps.freshness.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.target.outputs.sha }}
