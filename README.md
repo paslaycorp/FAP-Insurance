@@ -76,3 +76,16 @@ The EPM ↔ FAP Assurance Contract is versioned independently from production ru
 ## Security and operations
 
 Do not commit production credentials. Production releases should remain tied to exact source identity and machine-readable evidence. A failed runtime proof must remain a failed release rather than being normalized into success.
+
+## Operational closure
+
+Operational authority and recovery are documented explicitly:
+
+- `docs/TRUST_BOUNDARY.md` — who may assert what;
+- `docs/THREAT_MODEL.md` — protected assets, trust boundaries, threats, and residual risks;
+- `docs/SERVICE_LEVEL_OBJECTIVES.md` — zero-error assurance invariants and provisional service targets;
+- `ops/RUNBOOK.md` — normal operation, exact-SHA release, degraded states, and rollback;
+- `ops/INCIDENT_RESPONSE.md` — incident classification, evidence preservation, investigation, and recovery;
+- `ops/PRODUCTION_RELEASE.md` — authoritative production release boundary.
+
+Repository or CI state must not be represented as production-runtime proof without a matching release attestation.
