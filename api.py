@@ -23,6 +23,7 @@ from dpie_context import RequestAssuranceContext, clear_context, set_context
 from dpie_runtime import assess_request_context
 from epm import assess_temporal_availability
 from epm_fap_availability import FAPAuthenticatedRequestReceipt, ingest_fap_authenticated_request
+from epm_fap_trust import FAPBoundaryValidationError, validate_fap_evidence_receipt
 from epm_observability import record_epm_decision, record_source_degradation, snapshot as epm_metrics_snapshot
 from evidence import EvidenceEnvelope, OracleObservation
 from fusion import EvidenceFusionEngine
@@ -42,7 +43,7 @@ async def lifespan(app: FastAPI):
         headers={"User-Agent": f"FAP-Insurance/{SETTINGS.VERSION}"},
         timeout=30.0,
     )
-    app.state.fap_client = FapCoreClient(app.state.http)
+    app.state.fap_client = FapCoreClient(app.state.http, api_key=config.FAP_CORE_API_KEY)
     app.state.reality = RealityAnchor(app.state.http)
     app.state.fusion = EvidenceFusionEngine()
     yield
@@ -168,10 +169,11 @@ def _recommendation(verdict: str, score: float) -> str:
     return "High fraud probability. Escalate to SIU. Recommend denial pending investigation."
 
 
-def _build_fap_payload(req: VerifyClaimRequest) -> Dict[str, Any]:
+def _build_fap_payload(req: VerifyClaimRequest, evidence_id: str) -> Dict[str, Any]:
     if req.media_hash is None:
         raise ValueError("media_hash is required for production evidence provenance.")
     return {
+        "artifact_id": evidence_id,
         "media_hash": req.media_hash,
         "geo": {"lat": req.lat, "lon": req.lon},
         "timestamp_claimed": req.timestamp_claimed.isoformat(),
@@ -327,12 +329,31 @@ async def _process_single_claim(
         if not req.enrollment_id:
             record_source_degradation("DeviceRegistry")
 
-        payload = _build_fap_payload(req)
+        payload = _build_fap_payload(req, envelope.evidence_id)
         fap_core_connected = False
+        trusted_boundary = None
         try:
             fap_result = await fap_client.verify(config.FAP_CORE_URL, payload)
             fap_core_connected = True
             fap_components = fap_result.get("components", {})
+            trust_error = None
+            try:
+                runtime_identity = await fap_client.runtime_identity(config.FAP_CORE_URL)
+                trusted_boundary = validate_fap_evidence_receipt(
+                    receipt=fap_result.get("evidence_receipt"),
+                    fap_response=fap_result,
+                    runtime_identity=runtime_identity,
+                    local_availability=availability,
+                )
+            except FAPBoundaryValidationError as exc:
+                trust_error = str(exc)
+                record_source_degradation("FAP-Core-Trust")
+                log.warning("epm.fap_boundary_rejected", reason=trust_error)
+            except FapCoreUnavailable as exc:
+                trust_error = str(exc)
+                record_source_degradation("FAP-Core-Identity")
+                log.warning("epm.fap_runtime_identity_unavailable", reason=trust_error)
+
             envelope.add_observation(
                 OracleObservation(
                     oracle_type="consensus",
@@ -341,8 +362,12 @@ async def _process_single_claim(
                     raw_value={
                         "verdict": fap_result.get("verdict"),
                         "components": fap_components,
+                        "receipt_id": (
+                            trusted_boundary.receipt_id if trusted_boundary else None
+                        ),
                     },
-                    status="OK",
+                    status="OK" if trusted_boundary is not None else "DEGRADED",
+                    discrepancy_note=trust_error,
                 )
             )
         except Exception as exc:
@@ -367,6 +392,7 @@ async def _process_single_claim(
             evidence_id=envelope.evidence_id,
             verification={"verdict": envelope.verdict},
             context=dpie_context,
+            trusted_boundary=trusted_boundary,
         )
         epm_latency_ms = (
             datetime.now(timezone.utc) - epm_started
@@ -418,7 +444,8 @@ async def _process_single_claim(
         envelope.audit_record_hash = audit_record.record_hash
         envelope.fap_core_response = fap_result
 
-        if dpie_result["decision"] in {"DENY", "QUARANTINE"} or bool(
+        allowed_decisions = {"AUTHORIZED", "AUTHORIZED_WITH_CONSTRAINTS"}
+        if dpie_result["decision"] not in allowed_decisions or bool(
             dpie_result.get("fail_closed", False)
         ):
             status_code = 403 if dpie_result["decision"] == "DENY" else 409
@@ -457,6 +484,13 @@ async def _process_single_claim(
             status=envelope.verdict,
             processed_at=datetime.now(timezone.utc),
             request_id=req_id,
+            dpie_transition_id=dpie_result["transition_id"],
+            dpie_property=dpie_result["property"],
+            dpie_state=dpie_result["state"],
+            dpie_decision=dpie_result["decision"],
+            dpie_failure=dpie_result["failure"],
+            dpie_reason=dpie_result["reason"],
+            dpie_fail_closed=dpie_result["fail_closed"],
         )
     finally:
         clear_context()
@@ -475,7 +509,11 @@ async def live():
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
-    fap_ok = await app.state.fap_client.health(config.FAP_CORE_URL)
+    try:
+        await app.state.fap_client.runtime_identity(config.FAP_CORE_URL)
+        fap_ok = True
+    except FapCoreUnavailable:
+        fap_ok = False
     return HealthResponse(
         status="healthy",
         fap_core_connected=fap_ok,

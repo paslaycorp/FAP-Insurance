@@ -32,8 +32,8 @@ def test_dpie_determination_is_embedded_in_existing_audit_payload():
             verdict="STRICT",
         )
         payload = envelope.to_audit_payload()
-        assert payload["dpie"]["failure"] == "MISAPPLICATION"
-        assert payload["dpie"]["decision"] == "DENY"
+        assert payload["dpie"]["failure"] == "NONE"
+        assert payload["dpie"]["decision"] == "DEFER"
         assert payload["dpie"]["source_evidence_id"] == envelope.evidence_id
         assert payload["dpie"]["source_context"]["purpose"] == "claim-verification"
         assert payload["dpie"]["target_context"]["purpose"] == "litigation-discovery"

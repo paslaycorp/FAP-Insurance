@@ -6,6 +6,8 @@ is evidence of a conformance gap, not a test defect.
 """
 from datetime import datetime, timezone
 
+import pytest
+
 from dpie_assurance import (
     AssuranceContext,
     AssuranceProperty,
@@ -152,10 +154,9 @@ def test_epm_c14_authorization_does_not_follow_epistemic_validity_alone():
         target_context=target,
         transition_id="C14-BLOCKED",
     )
-    assert blocked["state"] == "INVALIDATED"
-    assert blocked["decision"] == "DENY"
-    assert blocked["failure"] == "MISAPPLICATION"
-    assert blocked["fail_closed"] is True
+    assert blocked["state"] == "UNKNOWN"
+    assert blocked["decision"] == "DEFER"
+    assert blocked["failure"] == "NONE"
 
     proof = PreservationProof(
         property_name="applicability",
@@ -173,18 +174,15 @@ def test_epm_c14_authorization_does_not_follow_epistemic_validity_alone():
         source_jurisdiction="TX",
         target_jurisdiction="TX",
     )
-    permitted = assess_fap_transition(
-        evidence_id="E-C14",
-        verification={"verdict": "STRICT"},
-        source_context=source,
-        target_context=target,
-        transition_id="C14-PERMITTED",
-        preservation_proof=proof,
-    )
-    assert permitted["state"] == "PRESERVED"
-    assert permitted["decision"] == "AUTHORIZED"
-    assert permitted["failure"] == "NONE"
-    assert permitted["fail_closed"] is False
+    with pytest.raises(ValueError, match="dedicated trusted validation adapter"):
+        assess_fap_transition(
+            evidence_id="E-C14",
+            verification={"verdict": "STRICT"},
+            source_context=source,
+            target_context=target,
+            transition_id="C14-PERMITTED",
+            preservation_proof=proof,
+        )
 
 
 def test_epm_c18_temporal_preservation_requires_matching_temporal_context():
@@ -263,7 +261,7 @@ def test_epm_c21_later_evidence_cannot_strengthen_prior_state_without_temporal_b
     assert result["failure"] == "TEMPORAL_MISMATCH"
 
 
-def test_epm_c21_later_evidence_requires_explicit_temporal_bridge():
+def test_epm_c21_raw_temporal_bridge_cannot_self_authorize():
     """A justified bridge permits normal downstream preservation evaluation."""
     claim_time = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
     later_available = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
@@ -280,10 +278,11 @@ def test_epm_c21_later_evidence_requires_explicit_temporal_bridge():
         transition_id=transition_id,
         preservation_proof=_c21_proof(transition_id),
     )
-    assert result["decision"] == "AUTHORIZED"
+    assert result["decision"] == "DENY"
+    assert result["failure"] == "TEMPORAL_MISMATCH"
 
 
-def test_epm_c21_pre_available_evidence_preserves_existing_behavior():
+def test_epm_c21_pre_available_fap_verdict_remains_unresolved():
     """Evidence available before the claimed state remains eligible for normal evaluation."""
     claim_time = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
     available_before = datetime(2026, 8, 28, 13, 0, tzinfo=UTC)
@@ -296,4 +295,5 @@ def test_epm_c21_pre_available_evidence_preserves_existing_behavior():
         transition_id=transition_id,
         preservation_proof=_c21_proof(transition_id),
     )
-    assert result["decision"] == "AUTHORIZED"
+    assert result["state"] == "UNKNOWN"
+    assert result["decision"] == "DEFER"

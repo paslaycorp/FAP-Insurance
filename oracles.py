@@ -120,18 +120,27 @@ class FapCoreClient:
         self,
         client: httpx.AsyncClient,
         *,
+        api_key: str = "",
         health_success_ttl_seconds: float = 10.0,
         health_failure_ttl_seconds: float = 30.0,
     ):
         self.client = client
+        self.api_key = api_key
         self.health_success_ttl_seconds = health_success_ttl_seconds
         self.health_failure_ttl_seconds = health_failure_ttl_seconds
         self._health_cache: dict[str, tuple[bool, float]] = {}
+        self._identity_cache: dict[str, tuple[dict[str, Any], float]] = {}
         self._health_lock = asyncio.Lock()
 
     async def verify(self, base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.api_key:
+            raise FapCoreUnavailable("FAP-Core API key is not configured.")
         try:
-            response = await self.client.post(f"{base_url.rstrip('/')}/verify", json=payload)
+            response = await self.client.post(
+                f"{base_url.rstrip('/')}/verify",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, dict):
@@ -139,6 +148,33 @@ class FapCoreClient:
             return data
         except Exception as exc:
             raise FapCoreUnavailable(str(exc)) from exc
+
+    async def runtime_identity(self, base_url: str) -> Dict[str, Any]:
+        """Observe exact FAP-Core identity through the authenticated service boundary."""
+        if not self.api_key:
+            raise FapCoreUnavailable("FAP-Core API key is not configured.")
+        key = base_url.rstrip("/")
+        now = time.monotonic()
+        cached = self._identity_cache.get(key)
+        if cached is not None and now < cached[1]:
+            return dict(cached[0])
+
+        try:
+            response = await self.client.get(
+                f"{key}/auth/check",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("FAP-Core authenticated identity returned a non-object response.")
+            self._identity_cache[key] = (
+                dict(data),
+                time.monotonic() + max(0.0, self.health_success_ttl_seconds),
+            )
+            return dict(data)
+        except Exception as exc:
+            raise FapCoreUnavailable(f"FAP-Core runtime identity unavailable: {exc}") from exc
 
     def _cached_health(self, key: str, now: float) -> bool | None:
         cached = self._health_cache.get(key)

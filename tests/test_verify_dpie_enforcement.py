@@ -83,16 +83,16 @@ async def test_verify_material_context_change_is_blocked_and_audited(monkeypatch
                 "REQ-001",
             )
 
-        assert exc_info.value.status_code == 403
+        assert exc_info.value.status_code == 409
         detail = exc_info.value.detail
         assert detail["error"] == "EPM_ASSURANCE_BLOCKED"
-        assert detail["decision"] == "DENY"
-        assert detail["failure"] == "MISAPPLICATION"
+        assert detail["decision"] == "DEFER"
+        assert detail["failure"] == "NONE"
         assert detail["audit_record_hash"] == "hash-001"
 
         payload = captured["envelope"]
-        assert payload["dpie"]["decision"] == "DENY"
-        assert payload["dpie"]["failure"] == "MISAPPLICATION"
+        assert payload["dpie"]["decision"] == "DEFER"
+        assert payload["dpie"]["failure"] == "NONE"
         assert payload["dpie"]["source_evidence_id"] == payload["evidence_id"]
         assert payload["dpie"]["temporal_availability"]["source"] == (
             "fap-insurance-authenticated-request"

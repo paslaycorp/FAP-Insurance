@@ -1,6 +1,8 @@
 """Runtime conformance probes for EPM C-18 temporal preservation."""
 from datetime import datetime, timezone
 
+import pytest
+
 from dpie_runtime import FAPDecisionContext, assess_fap_transition
 from epm import PreservationProof
 
@@ -53,10 +55,9 @@ def test_epm_c18_temporal_crossing_without_preservation_fails_closed():
         transition_id="C18-BLOCKED",
     )
 
-    assert result["state"] == "INVALIDATED"
-    assert result["decision"] == "DENY"
-    assert result["failure"] == "TEMPORAL_MISMATCH"
-    assert result["fail_closed"] is True
+    assert result["state"] == "UNKNOWN"
+    assert result["decision"] == "DEFER"
+    assert result["failure"] == "NONE"
 
 
 def test_epm_c18_temporal_crossing_requires_explicit_preservation():
@@ -65,19 +66,15 @@ def test_epm_c18_temporal_crossing_requires_explicit_preservation():
     target_at = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
     transition_id = "C18-PRESERVED"
 
-    result = assess_fap_transition(
-        evidence_id="E-C18",
-        verification={"verdict": "STRICT"},
-        source_context=_context(source_at),
-        target_context=_context(target_at),
-        transition_id=transition_id,
-        preservation_proof=_proof(transition_id),
-    )
-
-    assert result["state"] == "PRESERVED"
-    assert result["decision"] == "AUTHORIZED"
-    assert result["failure"] == "NONE"
-    assert result["fail_closed"] is False
+    with pytest.raises(ValueError, match="dedicated trusted validation adapter"):
+        assess_fap_transition(
+            evidence_id="E-C18",
+            verification={"verdict": "STRICT"},
+            source_context=_context(source_at),
+            target_context=_context(target_at),
+            transition_id=transition_id,
+            preservation_proof=_proof(transition_id),
+        )
 
 
 def test_epm_c18_unchanged_temporal_context_preserves_normal_behavior():
@@ -92,7 +89,6 @@ def test_epm_c18_unchanged_temporal_context_preserves_normal_behavior():
         transition_id="C18-CONTROL",
     )
 
-    assert result["state"] == "PRESERVED"
-    assert result["decision"] == "AUTHORIZED"
+    assert result["state"] == "UNKNOWN"
+    assert result["decision"] == "DEFER"
     assert result["failure"] == "NONE"
-    assert result["fail_closed"] is False

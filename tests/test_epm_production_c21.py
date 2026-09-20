@@ -72,16 +72,16 @@ def test_receipt_rejects_non_sha256_reference():
         _receipt(media_hash="not-a-hash")
 
 
-def test_present_time_use_is_authorized_with_trusted_receipt():
+def test_present_time_receipt_proves_availability_not_assurance_authority():
     availability = _receipt()
     result = assess_request_context(
         evidence_id=EVIDENCE_ID,
         verification={"verdict": "STRICT"},
         context=_context(availability=availability),
     )
-    assert result["decision"] == "AUTHORIZED"
+    assert result["state"] == "UNKNOWN"
+    assert result["decision"] == "DEFER"
     assert result["failure"] == "NONE"
-    assert result["fail_closed"] is False
 
 
 def test_retroactive_target_before_receipt_is_quarantined():
@@ -136,4 +136,5 @@ def test_capture_event_time_does_not_backdate_epistemic_availability():
         verification={"verdict": "STRICT"},
         context=context,
     )
-    assert result["decision"] == "AUTHORIZED"
+    assert result["state"] == "UNKNOWN"
+    assert result["decision"] == "DEFER"

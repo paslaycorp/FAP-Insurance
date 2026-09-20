@@ -13,6 +13,7 @@ from typing import Any
 from dpie_context import RequestAssuranceContext
 from epm_fap_adapter import assess_fap_via_epm_envelope
 from epm_fap_semantics import FAPDecisionContext
+from epm_fap_trust import ValidatedFAPBoundary
 
 
 def assess_fap_transition(
@@ -23,6 +24,7 @@ def assess_fap_transition(
     target_context: FAPDecisionContext,
     transition_id: str,
     preservation_proof: Any = None,
+    trusted_boundary: ValidatedFAPBoundary | None = None,
 ) -> Mapping[str, Any]:
     """Compatibility entry point routed through the generic EPM envelope.
 
@@ -38,6 +40,7 @@ def assess_fap_transition(
             target_context=target_context,
             transition_id=transition_id,
             preservation_proof=preservation_proof,
+            trusted_boundary=trusted_boundary,
         )
     )
     result.pop("schema_version", None)
@@ -49,6 +52,7 @@ def assess_request_context(
     evidence_id: str,
     verification: Mapping[str, Any],
     context: RequestAssuranceContext,
+    trusted_boundary: ValidatedFAPBoundary | None = None,
 ) -> Mapping[str, Any]:
     source = FAPDecisionContext(
         None,
@@ -87,4 +91,5 @@ def assess_request_context(
         target_context=target,
         transition_id=f"DPIE-{evidence_id or 'PENDING'}",
         preservation_proof=context.preservation_proof,
+        trusted_boundary=trusted_boundary,
     )

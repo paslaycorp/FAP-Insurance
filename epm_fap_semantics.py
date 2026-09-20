@@ -18,6 +18,8 @@ from epm import (
     State,
 )
 
+from epm_fap_trust import ValidatedFAPBoundary
+
 
 @dataclass(frozen=True)
 class FAPDecisionContext:
@@ -36,13 +38,25 @@ def source_state_from_fap(
     evidence_id: str,
     verification: Mapping[str, Any],
     context: FAPDecisionContext,
+    trusted_boundary: ValidatedFAPBoundary | None = None,
 ) -> State:
-    verdict = str(verification.get("verdict", "UNKNOWN")).upper()
-    value = (
-        AssuranceState.PRESERVED
-        if verdict in {"STRICT", "PROBABLE"}
-        else AssuranceState.UNKNOWN
+    # FAP verdicts/scores are observations, not EPM assurance authority.
+    # This compatibility translator therefore starts unresolved unless a
+    # separately trusted EPM-owned basis is introduced at a higher boundary.
+    _ = verification
+    trusted = (
+        trusted_boundary is not None
+        and trusted_boundary.establishes_source_context(
+            evidence_id=evidence_id,
+            purpose=context.purpose,
+            scope=context.scope,
+            jurisdiction=context.jurisdiction,
+            rule_id=context.rule_id,
+            rule_version=context.rule_version,
+            rule_authority=context.rule_authority,
+        )
     )
+    value = AssuranceState.PRESERVED if trusted else AssuranceState.UNKNOWN
     return State(
         evidence_id,
         {
@@ -71,15 +85,12 @@ def source_state_from_fap(
 def preservation_proof_from_mapping(
     raw: Mapping[str, Any] | None,
     transition_id: str,
-    *,
-    boundary_validated: bool = False,
 ) -> PreservationProof | None:
     """Translate raw FAP proof data without allowing it to grant itself trust.
 
-    ``boundary_validated`` is an adapter-side trust result, not an input field.
     A raw mapping may contain a ``boundary_validated`` key, but that claim is
-    deliberately ignored. Callers may set this keyword only after a legitimate
-    ingestion-boundary validation procedure has succeeded.
+    deliberately ignored. This raw compatibility path has no authority to
+    establish boundary validation.
     """
     if not raw:
         return None
@@ -91,7 +102,7 @@ def preservation_proof_from_mapping(
         authority=str(raw.get("authority", "")),
         evidence_refs=tuple(str(v) for v in raw.get("evidence_refs", ())),
         valid=bool(raw.get("valid", False)),
-        boundary_validated=boundary_validated,
+        boundary_validated=False,
         reason=str(raw.get("reason", "")),
         source_purpose=raw.get("source_purpose"),
         target_purpose=raw.get("target_purpose"),
@@ -103,9 +114,6 @@ def preservation_proof_from_mapping(
 
 
 def validated_temporal_bridge(raw: Any) -> bool:
-    return (
-        isinstance(raw, Mapping)
-        and raw.get("validated") is True
-        and isinstance(raw.get("basis"), str)
-        and bool(raw["basis"].strip())
-    )
+    """Raw compatibility input cannot self-assert a trusted temporal bridge."""
+    _ = raw
+    return False

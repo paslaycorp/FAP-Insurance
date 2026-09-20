@@ -1,4 +1,5 @@
 """FAP-Insurance API contract tests."""
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -7,11 +8,79 @@ from fastapi.testclient import TestClient
 from api import app
 from config import SETTINGS
 from epm import EPM_ENGINE_VERSION
+from epm_fap_trust import EXPECTED_CONTRACT_REVISION_SHA, EXPECTED_CONTRACT_VERSION
 
 
 @pytest.fixture(scope="module")
 def client():
     with TestClient(app) as test_client:
+        producer_sha = "a" * 40
+
+        async def trusted_verify(base_url, payload):
+            now = datetime.now(timezone.utc)
+            evidence_id = payload["artifact_id"]
+            provenance = f"provenance:{evidence_id}"
+            observed = now.isoformat()
+            material = (
+                f"{evidence_id}:{provenance}:{observed}:"
+                f"{producer_sha}:{EXPECTED_CONTRACT_VERSION}:{EXPECTED_CONTRACT_REVISION_SHA}"
+            )
+            receipt_id = "fap-evidence:" + hashlib.sha256(material.encode()).hexdigest()
+            return {
+                "artifact_id": evidence_id,
+                "verdict": "STRICT",
+                "total_score": 0.95,
+                "confidence": 0.94,
+                "components": {"weather": 0.9, "device": 0.9},
+                "provenance_hash": provenance,
+                "evidence_receipt": {
+                    "schema_version": "epm-fap-evidence-receipt/1.0",
+                    "contract_version": EXPECTED_CONTRACT_VERSION,
+                    "contract_revision_sha": EXPECTED_CONTRACT_REVISION_SHA,
+                    "receipt_id": receipt_id,
+                    "evidence_id": evidence_id,
+                    "source": "fap-core:verify",
+                    "provenance_ref": provenance,
+                    "observed_at": observed,
+                    "available_at": observed,
+                    "attestation": {
+                        "attestation_id": f"fap-core-verify:{evidence_id}:{producer_sha}",
+                        "authority": "fap-core",
+                        "method": "verification-pipeline",
+                        "basis": provenance,
+                        "validated": True,
+                    },
+                    "boundary_validation": {
+                        "validated": False,
+                        "validator": "fap-core",
+                        "method": "not-evaluated",
+                        "basis": "producer does not own EPM ingestion trust",
+                        "validated_at": observed,
+                    },
+                    "producer": {
+                        "component": "fap-core",
+                        "repository": "paslaycorp/FAP-Core-v0.2.0",
+                        "commit_sha": producer_sha,
+                    },
+                },
+            }
+
+        async def trusted_runtime_identity(base_url):
+            return {
+                "status": "healthy",
+                "service": "fap-core",
+                "version": "0.2.0",
+                "git_commit": producer_sha,
+                "git_branch": "main",
+                "git_repo_slug": "paslaycorp/FAP-Core-v0.2.0",
+            }
+
+        async def trusted_health(base_url):
+            return True
+
+        test_client.app.state.fap_client.verify = trusted_verify
+        test_client.app.state.fap_client.runtime_identity = trusted_runtime_identity
+        test_client.app.state.fap_client.health = trusted_health
         yield test_client
 
 
@@ -222,3 +291,21 @@ def test_error_response_has_request_id(client):
     assert response.status_code == 422
     body = response.json()
     assert "error" in body and "detail" in body and "request_id" in body
+
+
+def test_missing_trusted_fap_receipt_blocks_authorization(client):
+    original_verify = client.app.state.fap_client.verify
+
+    async def no_receipt(base_url, payload):
+        data = await original_verify(base_url, payload)
+        data["evidence_receipt"] = None
+        return data
+
+    client.app.state.fap_client.verify = no_receipt
+    try:
+        response = client.post("/verify", json=_valid_payload(), headers=_headers())
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["decision"] == "DEFER"
+    finally:
+        client.app.state.fap_client.verify = original_verify

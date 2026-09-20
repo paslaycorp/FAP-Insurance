@@ -156,6 +156,8 @@ class VerifyClaimResponse(BaseModel):
         self.status = self.status or self.verdict
         self.processed_at = self.processed_at or self.timestamp_processed
         self.request_id = self.request_id or self.verification_id
+        if self.dpie_decision is not None:
+            return self
         ctx = get_context()
         if ctx is None:
             return self
