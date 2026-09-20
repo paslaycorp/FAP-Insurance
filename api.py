@@ -509,7 +509,11 @@ async def live():
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
-    fap_ok = await app.state.fap_client.health(config.FAP_CORE_URL)
+    try:
+        await app.state.fap_client.runtime_identity(config.FAP_CORE_URL)
+        fap_ok = True
+    except FapCoreUnavailable:
+        fap_ok = False
     return HealthResponse(
         status="healthy",
         fap_core_connected=fap_ok,
