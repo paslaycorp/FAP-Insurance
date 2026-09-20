@@ -1,9 +1,11 @@
 """DPIE assurance primitives and adversarial transition evaluator."""
 from __future__ import annotations
+
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import FrozenSet, Mapping, Optional
+
 
 class AssuranceState(str, Enum):
     PRESERVED = "PRESERVED"
@@ -40,21 +42,21 @@ class Property(str, Enum):
 @dataclass(frozen=True)
 class AssuranceProperty:
     name: str
-    dependencies: FrozenSet[str] = field(default_factory=frozenset)
+    dependencies: frozenset[str] = field(default_factory=frozenset)
 @dataclass(frozen=True)
 class RuleBinding:
     rule_id: str
     version: str
     authority: str
-    jurisdiction: Optional[str] = None
-    effective_at: Optional[datetime] = None
+    jurisdiction: str | None = None
+    effective_at: datetime | None = None
 @dataclass(frozen=True)
 class AssuranceContext:
-    identity: Optional[str] = None
-    purpose: Optional[str] = None
-    scope: Optional[str] = None
-    jurisdiction: Optional[str] = None
-    at: Optional[datetime] = None
+    identity: str | None = None
+    purpose: str | None = None
+    scope: str | None = None
+    jurisdiction: str | None = None
+    at: datetime | None = None
 @dataclass(frozen=True)
 class State:
     state_id: str
@@ -71,13 +73,13 @@ class PreservationProof:
     evidence_refs: tuple[str, ...] = ()
     valid: bool = True
     reason: str = ""
-    property: Optional[Property] = None
-    source_purpose: Optional[str] = None
-    target_purpose: Optional[str] = None
-    source_scope: Optional[str] = None
-    target_scope: Optional[str] = None
-    source_jurisdiction: Optional[str] = None
-    target_jurisdiction: Optional[str] = None
+    property: Property | None = None
+    source_purpose: str | None = None
+    target_purpose: str | None = None
+    source_scope: str | None = None
+    target_scope: str | None = None
+    source_jurisdiction: str | None = None
+    target_jurisdiction: str | None = None
     def normalized_property_name(self) -> str:
         return self.property_name or (self.property.value if self.property else "")
 @dataclass(frozen=True)
@@ -85,7 +87,7 @@ class Transition:
     transition_id: str
     source: State
     target: State
-    material_properties: FrozenSet[str]
+    material_properties: frozenset[str]
     preservation: Mapping[str, PreservationProof] = field(default_factory=dict)
 @dataclass(frozen=True)
 class AssuranceTransition:
