@@ -4,47 +4,63 @@
 
 GitHub Actions is the production deployment authority for FAP-Insurance.
 
-Render's provider-driven auto-deploy is intentionally removed from the trusted release path. The production workflow disables Render auto-deploy through the Render API before deploying an exact Git commit SHA.
+Render provider state is not source authority. Provider-driven auto-deploy is outside the accepted release path. The release controller disables Render auto-deploy before controlled exact-SHA deployment.
+
+## Release trigger
+
+Production release is **manual exact-SHA dispatch** through `.github/workflows/release-production.yml`.
+
+A merge to `main` runs validation but does not itself authorize or dispatch production. The operator supplies the full 40-character current-main merge SHA to the Production Release workflow.
+
+Manual dispatch does not bypass CI, merge provenance, current-main freshness, merge topology, runtime proof, or rollback controls.
 
 ## Required provenance chain
 
 A production release is accepted only when all of these statements are proven:
 
 1. The candidate is the current `main` commit and has not been superseded.
-2. `FAP-Insurance CI/CD` completed successfully for that exact SHA.
-3. `requirements.txt` contains a recoverable exact EPM commit pin.
-4. Render creates a deployment for the exact candidate SHA.
-5. That exact Render deployment reaches `live`.
-6. `/health` reports the same Git SHA at runtime.
-7. `/health` reports branch `main`, repository `paslaycorp/FAP-Insurance`, the expected FAP version, the expected EPM engine version, and a connected FAP-Core.
-8. A machine-readable release attestation is emitted and retained as a GitHub Actions artifact.
+2. The candidate is a two-parent merge commit.
+3. The candidate is uniquely attributable to a merged PR into `main`.
+4. Required FAP-Insurance CI/verification checks completed successfully for that exact SHA.
+5. `requirements.txt` contains a recoverable exact EPM commit pin.
+6. Render creates a deployment for the exact candidate SHA.
+7. That exact Render deployment reaches provider `live`.
+8. Runtime `/health` identifies the same Git SHA, branch, repository, expected FAP version, expected EPM engine version, and required FAP-Core connectivity.
+9. A machine-readable release attestation is emitted and retained.
 
 A Render `live` status alone is not release proof.
 
+## Required credentials and runtime configuration
+
+Release control requires:
+
+- `RENDER_API_KEY` in the protected GitHub `production` environment.
+
+Application runtime requires, at minimum:
+
+- `FAP_API_KEY`;
+- `FAP_CORE_URL`;
+- `FAP_CORE_API_KEY`.
+
+The FAP-Core service credential is required for authenticated `/verify` and runtime-identity observation. Missing credential must fail closed; it must not be replaced by unauthenticated health as trust evidence.
+
+Never place secret values in source, workflow YAML, issues, logs, chat, or release evidence.
+
 ## Fail-closed behavior
 
-The workflow refuses to deploy when:
+The workflow refuses or fails release acceptance when:
 
-- the CI workflow failed;
-- a manual release cannot prove a successful CI run for the target SHA;
-- the candidate is no longer the current `main` SHA;
+- required CI did not succeed for the target SHA;
+- the candidate is no longer current `main`;
+- merge topology/provenance is invalid;
 - `RENDER_API_KEY` is unavailable;
-- the Render service points at the wrong branch or repository;
+- Render service source identity is wrong;
 - Render deploys a different commit;
-- the deployment enters a terminal failure state;
-- runtime health does not identify the exact release SHA and expected EPM/FAP versions.
+- deployment reaches a terminal failure state;
+- runtime identity does not match the exact release SHA and expected versions;
+- required FAP-Core connectivity is not established.
 
-If failure occurs after production mutation begins and a prior live deployment exists, the controller requests a Render rollback to that prior deployment and records the rollback outcome in the attestation.
-
-## One-time credential requirement
-
-Create a GitHub Actions secret named:
-
-`RENDER_API_KEY`
-
-Prefer storing it in the GitHub `production` environment rather than as a broadly available repository secret. The token must be authorized to read/update the FAP-Insurance Render service and create/retrieve/rollback deployments.
-
-Never place the token in source, workflow YAML, issues, logs, chat, or Render environment variables used by the application.
+If failure occurs after production mutation begins and a prior live deployment exists, the controller requests rollback and records the outcome.
 
 ## Production identifiers
 
@@ -54,26 +70,20 @@ Never place the token in source, workflow YAML, issues, logs, chat, or Render en
 - Production branch: `main`
 - Repository: `paslaycorp/FAP-Insurance`
 
-## Workflow
+## Operator path
 
-`.github/workflows/release-production.yml`
-
-Automatic path:
-
-`main push -> FAP-Insurance CI/CD -> success -> Production Release -> exact-SHA Render deployment -> runtime proof -> attestation`
-
-Manual dispatch exists only for recovery. It does not bypass CI: the requested SHA must already have a successful CI/CD workflow run and must still equal current `main`.
+`merged PR → current main merge SHA → required checks green → manual Production Release dispatch with exact SHA → Render deployment → runtime proof → attestation`
 
 ## Attestation
 
-Successful and failed release attempts write `release-attestation.json` when the controller runs. The workflow uploads it as a 90-day Actions artifact.
+Successful and failed release attempts write `release-attestation.json` when the controller runs. The workflow retains it as an Actions artifact.
 
 The attestation records at minimum:
 
 - target Git SHA;
 - pinned EPM SHA;
-- previously live Render deploy/SHA;
-- new Render deploy ID/SHA/status;
+- previously live Render deployment/SHA;
+- new Render deployment ID/SHA/status;
 - runtime health identity;
 - GitHub workflow URL;
 - verification timestamp;
@@ -82,4 +92,4 @@ The attestation records at minimum:
 
 ## Acceptance criterion
 
-The production deployment boundary is closed only when a real `main` commit completes this chain without manual Render intervention and the resulting attestation proves that the runtime SHA equals the tested GitHub SHA.
+The production deployment boundary is closed only when the exact current-main merge commit completes the controlled chain and the resulting attestation proves runtime identity equals the reviewed/tested GitHub identity. No merge, provider status, or manual observation may substitute for that evidence.
