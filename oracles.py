@@ -150,7 +150,9 @@ class FapCoreClient:
             raise FapCoreUnavailable(str(exc)) from exc
 
     async def runtime_identity(self, base_url: str) -> Dict[str, Any]:
-        """Observe the exact FAP-Core runtime identity over the configured TLS path."""
+        """Observe exact FAP-Core identity through the authenticated service boundary."""
+        if not self.api_key:
+            raise FapCoreUnavailable("FAP-Core API key is not configured.")
         key = base_url.rstrip("/")
         now = time.monotonic()
         cached = self._identity_cache.get(key)
@@ -158,11 +160,14 @@ class FapCoreClient:
             return dict(cached[0])
 
         try:
-            response = await self.client.get(f"{key}/health")
+            response = await self.client.get(
+                f"{key}/auth/check",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, dict):
-                raise ValueError("FAP-Core health returned a non-object response.")
+                raise ValueError("FAP-Core authenticated identity returned a non-object response.")
             self._identity_cache[key] = (
                 dict(data),
                 time.monotonic() + max(0.0, self.health_success_ttl_seconds),
