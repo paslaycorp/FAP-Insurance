@@ -183,7 +183,6 @@ def test_rollback_health_proves_prior_sha_without_current_epm_version_binding():
     assert verify_rollback_health(
         "https://example.test/health",
         sha,
-        core_sha,
         timeout_seconds=1,
         interval_seconds=0,
         client=client,
@@ -212,6 +211,7 @@ def test_runtime_health_proves_exact_release():
     assert verify_runtime_health(
         "https://example.test/health",
         sha,
+        core_sha,
         timeout_seconds=1,
         interval_seconds=0,
         client=client,
