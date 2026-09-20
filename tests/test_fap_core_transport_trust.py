@@ -66,3 +66,13 @@ async def test_runtime_identity_is_observed_from_health_and_cached():
     assert first["git_commit"] == "a" * 40
     assert second == first
     assert len(http.gets) == 1
+    assert http.gets[0][0] == "https://fap-core.example/auth/check"
+    assert http.gets[0][1]["headers"] == {"Authorization": "Bearer service-secret"}
+
+
+@pytest.mark.asyncio
+async def test_runtime_identity_fails_closed_without_service_credential():
+    client = FapCoreClient(FakeClient(), api_key="")
+
+    with pytest.raises(FapCoreUnavailable, match="API key is not configured"):
+        await client.runtime_identity("https://fap-core.example")
