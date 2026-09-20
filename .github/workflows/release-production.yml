@@ -7,12 +7,15 @@ on:
         description: "Exact merged main-branch commit SHA to release"
         required: true
         type: string
+      fap_core_sha:
+        description: "Exact already-live FAP-Core commit SHA required by this release"
+        required: true
+        type: string
 
 permissions:
   contents: read
   actions: read
   pull-requests: read
-  deployments: write
 
 concurrency:
   group: fap-insurance-production
@@ -35,14 +38,21 @@ jobs:
         id: target
         env:
           DISPATCH_SHA: ${{ inputs.sha }}
+          DISPATCH_FAP_CORE_SHA: ${{ inputs.fap_core_sha }}
         run: |
           set -euo pipefail
           sha="${DISPATCH_SHA:-}"
+          fap_core_sha="${DISPATCH_FAP_CORE_SHA:-}"
           if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Invalid release SHA: $sha" >&2
             exit 1
           fi
+          if [[ ! "$fap_core_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid FAP-Core SHA: $fap_core_sha" >&2
+            exit 1
+          fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "fap_core_sha=$fap_core_sha" >> "$GITHUB_OUTPUT"
 
       - name: Checkout exact candidate
         # actions/checkout v6.1.0
@@ -178,6 +188,7 @@ jobs:
         if: steps.freshness.outputs.eligible == 'true'
         env:
           RELEASE_SHA: ${{ steps.target.outputs.sha }}
+          EXPECTED_FAP_CORE_SHA: ${{ steps.target.outputs.fap_core_sha }}
         run: python ops/render_release.py
 
       - name: Upload release attestation
