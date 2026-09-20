@@ -22,6 +22,7 @@ class Settings:
     RATE_LIMIT_BATCH: str = "10/minute"
     RATE_LIMIT_DEMO: str = "10/second"
     FAP_CORE_URL: str = os.getenv("FAP_CORE_URL", "http://localhost:8000")
+    FAP_CORE_API_KEY: str = os.getenv("FAP_CORE_API_KEY", "")
     FAP_CORE_TIMEOUT: float = 30.0
     NOAA_SWPC_URL: str = "https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.json"
     NOAA_NWS_BASE: str = "https://api.weather.gov"
