@@ -16,12 +16,15 @@ from epm import (
     EvidenceAvailability,
     EvidentiaryEnvelope,
     FailureCode,
+    PreservationProof,
     RuleBinding,
     State,
     TemporalAvailability,
     assess_temporal_availability,
     assess_transition,
 )
+
+from epm_fap_trust import ValidatedFAPBoundary
 
 from epm_fap_semantics import (
     FAPDecisionContext,
@@ -39,12 +42,18 @@ def envelope_from_fap_transition(
     target_context: FAPDecisionContext,
     transition_id: str,
     preservation_proof: Any = None,
+    trusted_boundary: ValidatedFAPBoundary | None = None,
 ) -> EvidentiaryEnvelope:
     """Translate the existing FAP boundary without semantic promotion."""
-    source = source_state_from_fap(evidence_id, verification, source_context)
+    source = source_state_from_fap(
+        evidence_id,
+        verification,
+        source_context,
+        trusted_boundary=trusted_boundary,
+    )
     target = State(
         f"{evidence_id}:target",
-        {"applicability": AssuranceState.PRESERVED},
+        {"applicability": AssuranceState.UNKNOWN},
         AssuranceContext(
             target_context.identity,
             target_context.purpose,
@@ -60,11 +69,19 @@ def envelope_from_fap_transition(
             target_context.at,
         ),
     )
-    proof = (
-        preservation_proof_from_mapping(preservation_proof, transition_id)
-        if isinstance(preservation_proof, Mapping)
-        else preservation_proof
-    )
+    if isinstance(preservation_proof, Mapping):
+        proof = preservation_proof_from_mapping(preservation_proof, transition_id)
+    elif isinstance(preservation_proof, PreservationProof):
+        if preservation_proof.boundary_validated:
+            raise ValueError(
+                "Trusted typed preservation proof is not accepted at the raw FAP "
+                "compatibility boundary; use a dedicated trusted validation adapter."
+            )
+        proof = preservation_proof
+    elif preservation_proof is None:
+        proof = None
+    else:
+        raise TypeError("preservation_proof must be a mapping, PreservationProof, or None")
     material = any(
         (
             source_context.purpose != target_context.purpose,
@@ -117,6 +134,7 @@ def assess_fap_via_epm_envelope(
     target_context: FAPDecisionContext,
     transition_id: str,
     preservation_proof: Any = None,
+    trusted_boundary: ValidatedFAPBoundary | None = None,
 ) -> Mapping[str, object]:
     """Evaluate FAP through the standalone EPM package.
 
@@ -197,5 +215,6 @@ def assess_fap_via_epm_envelope(
         target_context=target_context,
         transition_id=transition_id,
         preservation_proof=preservation_proof,
+        trusted_boundary=trusted_boundary,
     )
     return assess_transition(envelope)
