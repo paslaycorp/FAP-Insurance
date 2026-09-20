@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from epm_fap_trust import ValidatedFAPBoundary
-
 from epm import (
     AssuranceContext,
     AssuranceState,
@@ -19,6 +17,7 @@ from epm import (
     RuleBinding,
     State,
 )
+from epm_fap_trust import ValidatedFAPBoundary
 
 
 @dataclass(frozen=True)
