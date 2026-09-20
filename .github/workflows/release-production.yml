@@ -35,6 +35,7 @@ jobs:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: srv-d9fp2l3bc2fs73blamug
       PRODUCTION_HEALTH_URL: https://fap-core.onrender.com/health
+      FAP_CORE_HEALTH_URL: https://fap-core-odm4.onrender.com/health
 
     steps:
       - name: Resolve exact release SHA
