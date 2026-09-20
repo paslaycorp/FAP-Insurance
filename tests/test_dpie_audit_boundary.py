@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import audit
-from dpie_context import RequestAssuranceContext, set_context, clear_context
+from dpie_context import RequestAssuranceContext, clear_context, set_context
 from evidence import EvidenceEnvelope
 
 
