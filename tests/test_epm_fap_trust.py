@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import hashlib
-from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from epm import AvailabilityAttestation, EvidenceAvailability
+from epm_fap_adapter import assess_fap_via_epm_envelope
+from epm_fap_semantics import FAPDecisionContext
 from epm_fap_trust import (
     EXPECTED_CONTRACT_REVISION_SHA,
     EXPECTED_CONTRACT_VERSION,
@@ -100,13 +101,13 @@ def _runtime() -> dict:
     }
 
 
-def _validate(receipt=None, runtime=None, now=NOW):
+def _validate(receipt=None, runtime=None, now=NOW, availability=None):
     response = _response(receipt)
     return validate_fap_evidence_receipt(
         receipt=response["evidence_receipt"],
         fap_response=response,
         runtime_identity=runtime or _runtime(),
-        local_availability=_availability(),
+        local_availability=availability or _availability(),
         now=now,
     )
 
@@ -188,5 +189,77 @@ def test_stale_receipt_is_rejected():
         f"{PRODUCER_SHA}:{EXPECTED_CONTRACT_VERSION}:{EXPECTED_CONTRACT_REVISION_SHA}"
     )
     stale["receipt_id"] = "fap-evidence:" + hashlib.sha256(material.encode()).hexdigest()
+    stale_availability = EvidenceAvailability(
+        evidence_id=EVIDENCE_ID,
+        available_at=old - timedelta(seconds=2),
+        observed_at=old - timedelta(seconds=1),
+        source="fap-insurance-authenticated-request",
+        provenance_ref="urn:local:request:stale",
+        attestation=AvailabilityAttestation(
+            attestation_id="local-stale",
+            authority="FAP-Insurance production API",
+            method="authenticated server-side request receipt",
+            basis="authenticated ingress",
+            validated=True,
+        ),
+    )
     with pytest.raises(FAPBoundaryValidationError, match="stale"):
-        _validate(stale)
+        _validate(stale, availability=stale_availability)
+
+
+def _source_context(purpose="claim-verification"):
+    return FAPDecisionContext(
+        identity=None,
+        purpose=purpose,
+        scope="claim",
+        jurisdiction="TX",
+        at=NOW,
+        rule_id="carrier-default",
+        rule_version="1",
+        rule_authority="carrier-authority",
+        consequence="standard",
+    )
+
+
+def test_validated_receipt_reaches_authorized_matching_context():
+    boundary = _validate()
+    result = assess_fap_via_epm_envelope(
+        evidence_id=EVIDENCE_ID,
+        verification={"verdict": "STRICT", "confidence": 0.999},
+        source_context=_source_context(),
+        target_context=_source_context(),
+        transition_id="T-TRUSTED-MATCH",
+        trusted_boundary=boundary,
+    )
+
+    assert result["state"] == "PRESERVED"
+    assert result["decision"] == "AUTHORIZED"
+    assert result["failure"] == "NONE"
+
+
+def test_validated_receipt_does_not_authorize_material_purpose_shift():
+    boundary = _validate()
+    result = assess_fap_via_epm_envelope(
+        evidence_id=EVIDENCE_ID,
+        verification={"verdict": "STRICT"},
+        source_context=_source_context(),
+        target_context=_source_context(purpose="litigation-discovery"),
+        transition_id="T-TRUSTED-SHIFT",
+        trusted_boundary=boundary,
+    )
+
+    assert result["decision"] == "QUARANTINE"
+    assert result["failure"] == "MISAPPLICATION"
+
+
+def test_high_fap_verdict_without_validated_boundary_still_defers():
+    result = assess_fap_via_epm_envelope(
+        evidence_id=EVIDENCE_ID,
+        verification={"verdict": "STRICT", "confidence": 1.0},
+        source_context=_source_context(),
+        target_context=_source_context(),
+        transition_id="T-NO-TRUST",
+    )
+
+    assert result["state"] == "UNKNOWN"
+    assert result["decision"] == "DEFER"
