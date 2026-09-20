@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from dpie_assurance import AssuranceState, Decision, FailureCode
 
+
 @dataclass(frozen=True)
 class CompositionResult:
     state: AssuranceState
