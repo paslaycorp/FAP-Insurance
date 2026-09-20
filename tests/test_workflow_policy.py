@@ -1,0 +1,35 @@
+from pathlib import Path
+
+RELEASE = Path(".github/workflows/release-production.yml")
+CI = Path(".github/workflows/ci.yml")
+VERIFY = Path(".github/workflows/verify.yml")
+
+
+def test_production_release_requires_explicit_manual_dispatch():
+    text = RELEASE.read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in text
+    assert "workflow_run:" not in text
+    assert 'required: true' in text
+    assert 'description: "Exact merged main-branch commit SHA to release"' in text
+
+
+def test_ci_never_repairs_the_candidate_under_test():
+    text = CI.read_text(encoding="utf-8")
+
+    assert "ruff check --fix" not in text
+
+
+def test_github_hosted_runner_family_is_fixed():
+    for path in (RELEASE, CI, VERIFY):
+        text = path.read_text(encoding="utf-8")
+        assert "runs-on: ubuntu-latest" not in text
+        assert "runs-on: ubuntu-24.04" in text
+
+
+def test_release_actions_remain_immutable():
+    text = RELEASE.read_text(encoding="utf-8")
+
+    assert "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803" in text
+    assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in text
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in text
