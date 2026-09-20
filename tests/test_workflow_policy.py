@@ -53,3 +53,20 @@ def test_release_requires_merge_commit_topology():
 
     assert "Require merge-commit topology" in text
     assert 'if [[ "${#parts[@]}" -ne 3 ]]' in text
+
+
+def test_release_binds_exact_fap_core_sha():
+    text = RELEASE.read_text(encoding="utf-8")
+
+    assert "fap_core_sha:" in text
+    assert 'description: "Exact already-live FAP-Core commit SHA required by this release"' in text
+    assert "EXPECTED_FAP_CORE_SHA:" in text
+
+
+def test_release_permissions_are_least_privilege():
+    text = RELEASE.read_text(encoding="utf-8")
+
+    assert "contents: read" in text
+    assert "actions: read" in text
+    assert "pull-requests: read" in text
+    assert "deployments: write" not in text
