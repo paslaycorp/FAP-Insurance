@@ -25,7 +25,7 @@ A production release is accepted only when all of these statements are proven:
 5. `requirements.txt` contains a recoverable exact EPM commit pin.
 6. Render creates a deployment for the exact candidate SHA.
 7. That exact Render deployment reaches provider `live`.
-8. Before production mutation, FAP-Core `/health` identifies the exact operator-supplied Core SHA, expected repository/service, and production posture.
+8. Before production mutation, authenticated FAP-Core `/auth/check` identifies the exact operator-supplied Core SHA, expected repository/service, and production posture.
 9. Runtime `/health` identifies the same FAP-Insurance Git SHA, branch, repository, expected FAP/EPM versions, production posture, and authenticated FAP-Core identity matching the exact supplied Core SHA.
 10. A machine-readable release attestation is emitted and retained.
 
@@ -35,7 +35,8 @@ A Render `live` status alone is not release proof.
 
 Release control requires:
 
-- `RENDER_API_KEY` in the protected GitHub `production` environment.
+- `RENDER_API_KEY` in the protected GitHub `production` environment;
+- `FAP_CORE_API_KEY` in the protected GitHub `production` environment for authenticated Core identity preflight.
 
 Application runtime requires, at minimum:
 
