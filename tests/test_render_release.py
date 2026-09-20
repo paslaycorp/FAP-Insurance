@@ -8,7 +8,11 @@ import pytest
 
 from ops.render_release import (
     EXPECTED_BRANCH,
+    EXPECTED_ENVIRONMENT,
     EXPECTED_EPM_VERSION,
+    EXPECTED_FAP_CORE_ENVIRONMENT,
+    EXPECTED_FAP_CORE_REPO,
+    EXPECTED_FAP_CORE_SERVICE,
     EXPECTED_FAP_VERSION,
     EXPECTED_HEALTH_CHECK_PATH,
     EXPECTED_REPO_SLUG,
@@ -121,14 +125,18 @@ def test_read_epm_pin(tmp_path):
 
 
 def test_dependency_preflight_requires_repeatable_success():
-    client = FakeClient(
-        [
-            FakeResponse({"status": "healthy"}),
-            FakeResponse({"status": "healthy"}),
-        ]
-    )
+    expected_sha = "c" * 40
+    payload = {
+        "status": "healthy",
+        "service": EXPECTED_FAP_CORE_SERVICE,
+        "git_commit": expected_sha,
+        "git_repo_slug": EXPECTED_FAP_CORE_REPO,
+        "environment": EXPECTED_FAP_CORE_ENVIRONMENT,
+    }
+    client = FakeClient([FakeResponse(payload), FakeResponse(payload)])
     proof = verify_dependency_preflight(
         "https://fap-core.example/health",
+        expected_sha,
         max_attempts=2,
         required_successes=2,
         interval_seconds=0,
@@ -150,6 +158,7 @@ def test_dependency_preflight_rejects_edge_429_before_deploy():
     with pytest.raises(RuntimeError, match="dependency preflight failed"):
         verify_dependency_preflight(
             "https://fap-core.example/health",
+            "d" * 40,
             max_attempts=3,
             required_successes=2,
             interval_seconds=0,
@@ -183,6 +192,7 @@ def test_rollback_health_proves_prior_sha_without_current_epm_version_binding():
 
 def test_runtime_health_proves_exact_release():
     sha = "9" * 40
+    core_sha = "8" * 40
     payload = {
         "status": "healthy",
         "service": "fap-insurance",
@@ -192,11 +202,16 @@ def test_runtime_health_proves_exact_release():
         "git_branch": EXPECTED_BRANCH,
         "git_repo_slug": EXPECTED_REPO_SLUG,
         "fap_core_connected": True,
+        "environment": EXPECTED_ENVIRONMENT,
+        "fap_core_service": EXPECTED_FAP_CORE_SERVICE,
+        "fap_core_git_commit": core_sha,
+        "fap_core_git_repo_slug": EXPECTED_FAP_CORE_REPO,
     }
     client = FakeClient([FakeResponse(payload)])
     assert verify_runtime_health(
         "https://example.test/health",
         sha,
+        core_sha,
         timeout_seconds=1,
         interval_seconds=0,
         client=client,
@@ -206,6 +221,7 @@ def test_runtime_health_proves_exact_release():
 
 def test_runtime_health_rejects_wrong_sha(monkeypatch):
     wanted = "a" * 40
+    core_sha = "c" * 40
     payload = {
         "status": "healthy",
         "service": "fap-insurance",
@@ -215,6 +231,10 @@ def test_runtime_health_rejects_wrong_sha(monkeypatch):
         "git_branch": EXPECTED_BRANCH,
         "git_repo_slug": EXPECTED_REPO_SLUG,
         "fap_core_connected": True,
+        "environment": EXPECTED_ENVIRONMENT,
+        "fap_core_service": EXPECTED_FAP_CORE_SERVICE,
+        "fap_core_git_commit": core_sha,
+        "fap_core_git_repo_slug": EXPECTED_FAP_CORE_REPO,
     }
     client = FakeClient([FakeResponse(payload)])
     ticks = iter([0.0, 0.0, 2.0])
@@ -224,6 +244,65 @@ def test_runtime_health_rejects_wrong_sha(monkeypatch):
         verify_runtime_health(
             "https://example.test/health",
             wanted,
+            core_sha,
+            timeout_seconds=1,
+            interval_seconds=0,
+            client=client,
+            sleep=lambda _: None,
+        )
+
+
+def test_dependency_preflight_rejects_wrong_runtime_identity(monkeypatch):
+    wanted = "1" * 40
+    payload = {
+        "status": "healthy",
+        "service": EXPECTED_FAP_CORE_SERVICE,
+        "git_commit": "2" * 40,
+        "git_repo_slug": EXPECTED_FAP_CORE_REPO,
+        "environment": EXPECTED_FAP_CORE_ENVIRONMENT,
+    }
+    client = FakeClient([FakeResponse(payload)])
+    ticks = iter([0.0, 0.0, 2.0])
+    monkeypatch.setattr("ops.render_release.time.monotonic", lambda: next(ticks))
+
+    with pytest.raises(RuntimeError, match="dependency preflight failed"):
+        verify_dependency_preflight(
+            "https://fap-core.example/health",
+            wanted,
+            max_attempts=1,
+            required_successes=1,
+            interval_seconds=0,
+            client=client,
+            sleep=lambda _: None,
+        )
+
+
+def test_runtime_health_rejects_wrong_fap_core_sha(monkeypatch):
+    sha = "3" * 40
+    wanted_core = "4" * 40
+    payload = {
+        "status": "healthy",
+        "service": "fap-insurance",
+        "version": EXPECTED_FAP_VERSION,
+        "epm_engine_version": EXPECTED_EPM_VERSION,
+        "git_commit": sha,
+        "git_branch": EXPECTED_BRANCH,
+        "git_repo_slug": EXPECTED_REPO_SLUG,
+        "fap_core_connected": True,
+        "environment": EXPECTED_ENVIRONMENT,
+        "fap_core_service": EXPECTED_FAP_CORE_SERVICE,
+        "fap_core_git_commit": "5" * 40,
+        "fap_core_git_repo_slug": EXPECTED_FAP_CORE_REPO,
+    }
+    client = FakeClient([FakeResponse(payload)])
+    ticks = iter([0.0, 0.0, 2.0])
+    monkeypatch.setattr("ops.render_release.time.monotonic", lambda: next(ticks))
+
+    with pytest.raises(RuntimeError, match="fap_core_commit"):
+        verify_runtime_health(
+            "https://example.test/health",
+            sha,
+            wanted_core,
             timeout_seconds=1,
             interval_seconds=0,
             client=client,

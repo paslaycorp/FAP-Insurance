@@ -39,6 +39,7 @@ from solar_oracle import evaluate_solar_correlation
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    config.validate_runtime()
     app.state.http = httpx.AsyncClient(
         headers={"User-Agent": f"FAP-Insurance/{SETTINGS.VERSION}"},
         timeout=30.0,
@@ -509,8 +510,9 @@ async def live():
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
+    identity = None
     try:
-        await app.state.fap_client.runtime_identity(config.FAP_CORE_URL)
+        identity = await app.state.fap_client.runtime_identity(config.FAP_CORE_URL)
         fap_ok = True
     except FapCoreUnavailable:
         fap_ok = False
@@ -519,6 +521,10 @@ async def health():
         fap_core_connected=fap_ok,
         version=SETTINGS.VERSION,
         timestamp=datetime.now(timezone.utc),
+        fap_core_service=identity.get("service") if identity else None,
+        fap_core_git_commit=identity.get("git_commit") if identity else None,
+        fap_core_git_repo_slug=identity.get("git_repo_slug") if identity else None,
+        fap_core_render_service_id=identity.get("render_service_id") if identity else None,
     )
 
 

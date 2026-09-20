@@ -43,11 +43,12 @@ Production release is manual and exact-SHA.
 
 1. Open GitHub Actions → **Production Release**.
 2. Choose **Run workflow**.
-3. Supply the full 40-character current `main` merge SHA.
-4. Do not substitute a branch name, tag, shortened SHA, or earlier main commit.
-5. Allow the release controller to perform provenance, CI, Render, runtime, and rollback checks.
-6. Inspect the generated `release-attestation.json`.
-7. Accept the release only if the attestation records `result=verified`, the expected target SHA, matching runtime Git identity, expected EPM/FAP versions, and the required FAP-Core connectivity.
+3. Supply the full 40-character current FAP-Insurance `main` merge SHA.
+4. Supply the full 40-character **already-live** FAP-Core runtime SHA observed after the Core release proof.
+5. Do not substitute a branch name, tag, shortened SHA, or unverified dependency SHA.
+6. Allow the release controller to prove the exact FAP-Core identity before production mutation and again through authenticated FAP-Insurance health after deployment.
+7. Inspect the generated `release-attestation.json`.
+8. Accept the release only if the attestation records `result=verified`, the exact target SHA, the exact expected FAP-Core SHA, matching runtime Git identities, expected EPM/FAP versions, and production runtime posture.
 
 Do not manually edit the Render service to make a failed release appear healthy.
 

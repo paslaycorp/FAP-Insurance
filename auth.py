@@ -5,6 +5,8 @@ FastAPI dependency. Hardcoded key from env. Production rotation ready.
 
 from __future__ import annotations
 
+import hmac
+
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 
@@ -25,8 +27,8 @@ async def verify_api_key(api_key: str = Security(api_key_header)) -> str:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API key required.",
         )
-    if api_key != SETTINGS.API_KEY:
-        log.warning("auth.invalid_key", key_prefix=api_key[:8])
+    if not SETTINGS.API_KEY or not hmac.compare_digest(api_key, SETTINGS.API_KEY):
+        log.warning("auth.invalid_key")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid API key.",

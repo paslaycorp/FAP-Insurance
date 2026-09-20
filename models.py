@@ -191,3 +191,13 @@ class HealthResponse(BaseModel):
     git_repo_slug: str = Field(default_factory=lambda: os.getenv("RENDER_GIT_REPO_SLUG", "unknown"))
     render_service_id: Optional[str] = Field(default_factory=lambda: os.getenv("RENDER_SERVICE_ID"))
     render_instance_id: Optional[str] = Field(default_factory=lambda: os.getenv("RENDER_INSTANCE_ID"))
+    environment: str = Field(
+        default_factory=lambda: os.getenv(
+            "FAP_ENV",
+            "production" if os.getenv("RENDER", "").lower() == "true" else "development",
+        ).strip().lower()
+    )
+    fap_core_service: Optional[str] = None
+    fap_core_git_commit: Optional[str] = None
+    fap_core_git_repo_slug: Optional[str] = None
+    fap_core_render_service_id: Optional[str] = None

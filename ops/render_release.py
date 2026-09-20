@@ -29,6 +29,11 @@ EXPECTED_REPO_SLUG = "paslaycorp/FAP-Insurance"
 EXPECTED_BRANCH = "main"
 EXPECTED_FAP_VERSION = "0.3.0-grand-slam"
 EXPECTED_EPM_VERSION = "epm-engine/0.1.2"
+EXPECTED_ENVIRONMENT = "production"
+EXPECTED_FAP_CORE_SERVICE = "fap-core"
+EXPECTED_FAP_CORE_REPO = "paslaycorp/FAP-Core-v0.2.0"
+EXPECTED_FAP_CORE_ENVIRONMENT = "production"
+_SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 TERMINAL_FAILURES = {
     "build_failed",
     "canceled",
@@ -47,6 +52,7 @@ class ReleaseAttestation:
     schema_version: str
     release_sha: str
     epm_pin_sha: str
+    expected_fap_core_sha: str
     previous_live_deploy_id: str | None
     previous_live_sha: str | None
     render_deploy_id: str | None
@@ -183,6 +189,7 @@ def read_epm_pin(path: str | Path = "requirements.txt") -> str:
 
 def verify_dependency_preflight(
     health_url: str,
+    expected_sha: str,
     *,
     max_attempts: int = 3,
     required_successes: int = 2,
@@ -203,7 +210,15 @@ def verify_dependency_preflight(
             if response.status_code == 200:
                 data = response.json()
                 observation["payload"] = data
-                healthy = isinstance(data, dict) and data.get("status") == "healthy"
+                checks = {
+                    "status": isinstance(data, dict) and data.get("status") == "healthy",
+                    "service": isinstance(data, dict) and data.get("service") == EXPECTED_FAP_CORE_SERVICE,
+                    "commit": isinstance(data, dict) and data.get("git_commit") == expected_sha,
+                    "repo": isinstance(data, dict) and data.get("git_repo_slug") == EXPECTED_FAP_CORE_REPO,
+                    "environment": isinstance(data, dict) and data.get("environment") == EXPECTED_FAP_CORE_ENVIRONMENT,
+                }
+                healthy = all(checks.values())
+                observation["checks"] = checks
                 observation["healthy"] = healthy
                 consecutive = consecutive + 1 if healthy else 0
             else:
@@ -233,6 +248,7 @@ def verify_dependency_preflight(
 def verify_runtime_health(
     health_url: str,
     release_sha: str,
+    expected_fap_core_sha: str,
     *,
     timeout_seconds: int = 300,
     interval_seconds: int = 10,
@@ -257,6 +273,10 @@ def verify_runtime_health(
                 "branch": data.get("git_branch") == EXPECTED_BRANCH,
                 "repo": data.get("git_repo_slug") == EXPECTED_REPO_SLUG,
                 "fap_core": data.get("fap_core_connected") is True,
+                "environment": data.get("environment") == EXPECTED_ENVIRONMENT,
+                "fap_core_service": data.get("fap_core_service") == EXPECTED_FAP_CORE_SERVICE,
+                "fap_core_commit": data.get("fap_core_git_commit") == expected_fap_core_sha,
+                "fap_core_repo": data.get("fap_core_git_repo_slug") == EXPECTED_FAP_CORE_REPO,
             }
             if all(checks.values()):
                 return data
@@ -330,6 +350,7 @@ def write_attestation(attestation: ReleaseAttestation, path: str = "release-atte
             handle.write(f"- Result: **{attestation.result}**\n")
             handle.write(f"- Git SHA: `{attestation.release_sha}`\n")
             handle.write(f"- EPM pin: `{attestation.epm_pin_sha}`\n")
+            handle.write(f"- Expected FAP-Core SHA: `{attestation.expected_fap_core_sha}`\n")
             handle.write(f"- Render deploy: `{attestation.render_deploy_id}`\n")
             handle.write(f"- Render status: `{attestation.render_status}`\n")
             handle.write(
@@ -354,6 +375,9 @@ def release() -> ReleaseAttestation:
     service_id = os.getenv("RENDER_SERVICE_ID", DEFAULT_SERVICE_ID)
     health_url = os.getenv("PRODUCTION_HEALTH_URL", DEFAULT_HEALTH_URL)
     fap_core_health_url = os.getenv("FAP_CORE_HEALTH_URL", DEFAULT_FAP_CORE_HEALTH_URL)
+    expected_fap_core_sha = require_env("EXPECTED_FAP_CORE_SHA")
+    if not _SHA40_RE.fullmatch(expected_fap_core_sha):
+        raise RuntimeError("EXPECTED_FAP_CORE_SHA must be an exact 40-character lowercase SHA")
     epm_pin = read_epm_pin()
     api = RenderAPI(token, service_id)
 
@@ -370,6 +394,7 @@ def release() -> ReleaseAttestation:
         schema_version="fap.production-release-attestation/1.2",
         release_sha=release_sha,
         epm_pin_sha=epm_pin,
+        expected_fap_core_sha=expected_fap_core_sha,
         previous_live_deploy_id=previous_id,
         previous_live_sha=previous_sha,
         render_deploy_id=None,
@@ -395,7 +420,8 @@ def release() -> ReleaseAttestation:
 
         # Prove the canonical downstream dependency before mutating production.
         attestation.dependency_preflight = verify_dependency_preflight(
-            fap_core_health_url
+            fap_core_health_url,
+            expected_fap_core_sha,
         )
 
         service_details = service.get("serviceDetails") or {}
@@ -434,7 +460,11 @@ def release() -> ReleaseAttestation:
                 f"Live Render deploy reports {live_sha}, expected {release_sha}"
             )
 
-        attestation.runtime_health = verify_runtime_health(health_url, release_sha)
+        attestation.runtime_health = verify_runtime_health(
+            health_url,
+            release_sha,
+            expected_fap_core_sha,
+        )
 
         # Migrate Render's platform liveness probe only after the new runtime has
         # proved its exact identity and dependency readiness. This avoids pointing
