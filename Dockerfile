@@ -4,7 +4,7 @@
 # ═════════════════════════════════════════════════════════════
 
 # ── Stage 1: Builder ───────────────────────────────────────
-FROM python:3.12-slim AS builder
+FROM python:3.12.14-slim AS builder
 
 WORKDIR /build
 
@@ -13,10 +13,11 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends gcc git && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN python -m pip install "pip==26.2.1" && \
+    python -m pip install --no-cache-dir --user -r requirements.txt
 
 # ── Stage 2: Runtime ───────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.12.14-slim AS runtime
 
 LABEL org.opencontainers.image.title="FAP-Insurance"
 LABEL org.opencontainers.image.description="Fraud-resistant claim verification API"
@@ -45,7 +46,7 @@ ENV PORT=8000
 
 # Healthcheck follows the same runtime port as the application.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', '8000') + '/health')" || exit 1
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ.get('PORT', '8000') + '/live')" || exit 1
 
 # Render may assign the public service port dynamically. Bind to the
 # platform-provided PORT rather than hard-coding 8000. render_app adds a
