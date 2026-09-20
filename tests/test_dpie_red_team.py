@@ -1,6 +1,16 @@
 from datetime import datetime, timezone
 
-from dpie_assurance import AssuranceContext, AssuranceState, FailureCode, PreservationProof, RuleBinding, State, Transition, Decision, evaluate_transition
+from dpie_assurance import (
+    AssuranceContext,
+    AssuranceState,
+    Decision,
+    FailureCode,
+    PreservationProof,
+    RuleBinding,
+    State,
+    Transition,
+    evaluate_transition,
+)
 from dpie_runtime import FAPDecisionContext, assess_fap_transition
 
 
