@@ -8,40 +8,40 @@ from __future__ import annotations
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from epm import EvidenceAvailability
 
 
 @dataclass(frozen=True)
 class RequestAssuranceContext:
-    evidence_id: Optional[str]
+    evidence_id: str | None
     source_purpose: str
-    source_scope: Optional[str]
-    source_jurisdiction: Optional[str]
-    source_at: Optional[datetime]
+    source_scope: str | None
+    source_jurisdiction: str | None
+    source_at: datetime | None
     target_purpose: str
-    target_scope: Optional[str]
-    target_jurisdiction: Optional[str]
-    target_at: Optional[datetime]
+    target_scope: str | None
+    target_jurisdiction: str | None
+    target_at: datetime | None
     rule_id: str
     rule_version: str
     rule_authority: str
     consequence: str
-    preservation_proof: Optional[Dict[str, Any]] = None
-    evidence_availability: Optional[EvidenceAvailability] = None
+    preservation_proof: dict[str, Any] | None = None
+    evidence_availability: EvidenceAvailability | None = None
     require_trusted_availability: bool = False
-    event_time: Optional[datetime] = None
+    event_time: datetime | None = None
 
 
-_current: ContextVar[Optional[RequestAssuranceContext]] = ContextVar("dpie_assurance_context", default=None)
+_current: ContextVar[RequestAssuranceContext | None] = ContextVar("dpie_assurance_context", default=None)
 
 
 def set_context(context: RequestAssuranceContext) -> None:
     _current.set(context)
 
 
-def get_context() -> Optional[RequestAssuranceContext]:
+def get_context() -> RequestAssuranceContext | None:
     return _current.get()
 
 
