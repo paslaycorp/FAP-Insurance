@@ -1,6 +1,8 @@
 """vNext adversarial probes for the Generic Evidentiary Envelope v0.1."""
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from dpie_assurance import AssuranceContext, AssuranceState, RuleBinding, State
 from dpie_runtime import FAPDecisionContext, assess_fap_transition
 from epm import PreservationProof
@@ -86,8 +88,9 @@ def test_fap_adapter_matches_frozen_runtime_for_material_misapplication():
     generic = assess_fap_via_epm_envelope(**kwargs)
 
     assert _legacy_shape(generic) == frozen
-    assert generic["failure"] == "MISAPPLICATION"
-    assert generic["decision"] == "QUARANTINE"
+    assert generic["state"] == "UNKNOWN"
+    assert generic["failure"] == "NONE"
+    assert generic["decision"] == "DEFER"
 
 
 def test_fap_adapter_matches_runtime_for_boundary_validated_preservation():
@@ -118,12 +121,10 @@ def test_fap_adapter_matches_runtime_for_boundary_validated_preservation():
         "preservation_proof": proof,
     }
 
-    frozen = assess_fap_transition(**kwargs)
-    generic = assess_fap_via_epm_envelope(**kwargs)
-
-    assert _legacy_shape(generic) == frozen
-    assert generic["state"] == "PRESERVED"
-    assert generic["decision"] == "AUTHORIZED"
+    with pytest.raises(ValueError, match="dedicated trusted validation adapter"):
+        assess_fap_transition(**kwargs)
+    with pytest.raises(ValueError, match="dedicated trusted validation adapter"):
+        assess_fap_via_epm_envelope(**kwargs)
 
 
 def test_fap_adapter_preserves_existing_late_evidence_helper_boundary():
@@ -167,4 +168,5 @@ def test_fap_adapter_accepts_only_the_existing_validated_temporal_bridge_rule():
     generic = assess_fap_via_epm_envelope(**kwargs)
 
     assert _legacy_shape(generic) == frozen
-    assert generic["decision"] == "AUTHORIZED"
+    assert generic["failure"] == "TEMPORAL_MISMATCH"
+    assert generic["decision"] == "QUARANTINE"
