@@ -5,11 +5,14 @@ import os
 from dataclasses import dataclass
 
 
+_RENDER_DEFAULT_ENV = "production" if os.getenv("RENDER", "").lower() == "true" else "development"
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     SERVICE_NAME: str = "fap-insurance"
     VERSION: str = "0.3.0-grand-slam"
-    ENV: str = os.getenv("FAP_ENV", "production")
+    ENV: str = os.getenv("FAP_ENV", _RENDER_DEFAULT_ENV).strip().lower()
     HOST: str = os.getenv("FAP_HOST", "0.0.0.0")
     PORT: int = int(os.getenv("FAP_PORT", "8000"))
     WORKERS: int = int(os.getenv("FAP_WORKERS", "1"))
@@ -49,6 +52,32 @@ class Settings:
     @property
     def is_production(self) -> bool:
         return self.ENV == "production"
+
+    def validate_runtime(self) -> None:
+        if not self.is_production:
+            return
+
+        missing = [
+            name
+            for name, value in (
+                ("FAP_API_KEY", self.API_KEY),
+                ("FAP_CORE_API_KEY", self.FAP_CORE_API_KEY),
+            )
+            if not value.strip()
+        ]
+        if missing:
+            raise RuntimeError(
+                "Missing required production configuration: " + ", ".join(missing)
+            )
+
+        core_url = self.FAP_CORE_URL.rstrip("/")
+        if not core_url.startswith("https://") or core_url in {
+            "http://localhost:8000",
+            "https://localhost:8000",
+        }:
+            raise RuntimeError(
+                "FAP_CORE_URL must identify a non-local HTTPS service in production"
+            )
 
 
 SETTINGS = Settings()
