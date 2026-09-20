@@ -48,7 +48,7 @@ def test_epm_c21_runtime_rejects_unvalidated_or_unjustified_temporal_bridge():
         assert result["decision"] == "DENY", suffix
         assert result["failure"] == "TEMPORAL_MISMATCH", suffix
 
-def test_epm_c21_runtime_allows_later_evidence_with_explicit_temporal_bridge():
+def test_epm_c21_runtime_rejects_raw_self_asserted_temporal_bridge():
     claim_time = datetime(2026,8,28,14,0,tzinfo=UTC)
     later_available = datetime(2026,8,28,15,0,tzinfo=UTC)
     result = assess_fap_transition(
@@ -59,9 +59,10 @@ def test_epm_c21_runtime_allows_later_evidence_with_explicit_temporal_bridge():
         source_context=_context(claim_time), target_context=_context(claim_time),
         transition_id="C21-RUNTIME-BRIDGED",
         preservation_proof=_valid_preservation_proof("C21-RUNTIME-BRIDGED"))
-    assert result["decision"] == "AUTHORIZED"
+    assert result["decision"] == "DENY"
+    assert result["failure"] == "TEMPORAL_MISMATCH"
 
-def test_epm_c21_runtime_allows_pre_available_evidence_when_other_preservation_is_valid():
+def test_epm_c21_runtime_pre_available_fap_verdict_remains_unresolved():
     claim_time = datetime(2026,8,28,14,0,tzinfo=UTC)
     available_before = datetime(2026,8,28,13,0,tzinfo=UTC)
     result = assess_fap_transition(
@@ -70,4 +71,5 @@ def test_epm_c21_runtime_allows_pre_available_evidence_when_other_preservation_i
         source_context=_context(claim_time), target_context=_context(claim_time),
         transition_id="C21-RUNTIME-EARLY",
         preservation_proof=_valid_preservation_proof("C21-RUNTIME-EARLY"))
-    assert result["decision"] == "AUTHORIZED"
+    assert result["state"] == "UNKNOWN"
+    assert result["decision"] == "DEFER"
