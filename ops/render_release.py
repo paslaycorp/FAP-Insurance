@@ -22,7 +22,7 @@ import httpx
 API_BASE = "https://api.render.com/v1"
 DEFAULT_SERVICE_ID = "srv-d9fp2l3bc2fs73blamug"
 DEFAULT_HEALTH_URL = "https://fap-core.onrender.com/health"
-DEFAULT_FAP_CORE_HEALTH_URL = "https://fap-core-odm4.onrender.com/health"
+DEFAULT_FAP_CORE_IDENTITY_URL = "https://fap-core-odm4.onrender.com/auth/check"
 LEGACY_HEALTH_CHECK_PATH = "/health"
 EXPECTED_HEALTH_CHECK_PATH = "/live"
 EXPECTED_REPO_SLUG = "paslaycorp/FAP-Insurance"
@@ -188,8 +188,9 @@ def read_epm_pin(path: str | Path = "requirements.txt") -> str:
 
 
 def verify_dependency_preflight(
-    health_url: str,
+    identity_url: str,
     expected_sha: str,
+    api_key: str,
     *,
     max_attempts: int = 3,
     required_successes: int = 2,
@@ -205,7 +206,13 @@ def verify_dependency_preflight(
     for attempt in range(1, max_attempts + 1):
         observation: dict[str, Any] = {"attempt": attempt}
         try:
-            response = http.get(health_url, headers={"Cache-Control": "no-cache"})
+            response = http.get(
+                identity_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Cache-Control": "no-cache",
+                },
+            )
             observation["status_code"] = response.status_code
             if response.status_code == 200:
                 data = response.json()
@@ -374,7 +381,11 @@ def release() -> ReleaseAttestation:
     release_sha = require_env("RELEASE_SHA")
     service_id = os.getenv("RENDER_SERVICE_ID", DEFAULT_SERVICE_ID)
     health_url = os.getenv("PRODUCTION_HEALTH_URL", DEFAULT_HEALTH_URL)
-    fap_core_health_url = os.getenv("FAP_CORE_HEALTH_URL", DEFAULT_FAP_CORE_HEALTH_URL)
+    fap_core_identity_url = os.getenv(
+        "FAP_CORE_IDENTITY_URL",
+        DEFAULT_FAP_CORE_IDENTITY_URL,
+    )
+    fap_core_api_key = require_env("FAP_CORE_API_KEY")
     expected_fap_core_sha = require_env("EXPECTED_FAP_CORE_SHA")
     if not _SHA40_RE.fullmatch(expected_fap_core_sha):
         raise RuntimeError("EXPECTED_FAP_CORE_SHA must be an exact 40-character lowercase SHA")
@@ -420,8 +431,9 @@ def release() -> ReleaseAttestation:
 
         # Prove the canonical downstream dependency before mutating production.
         attestation.dependency_preflight = verify_dependency_preflight(
-            fap_core_health_url,
+            fap_core_identity_url,
             expected_fap_core_sha,
+            fap_core_api_key,
         )
 
         service_details = service.get("serviceDetails") or {}
@@ -501,7 +513,7 @@ def release() -> ReleaseAttestation:
             except Exception as health_path_exc:  # noqa: BLE001
                 health_path_restore_error = str(health_path_exc)
 
-        if previous_id and previous_sha and previous_sha != release_sha:
+        if deploy_id and previous_id and previous_sha and previous_sha != release_sha:
             try:
                 rolled = api.rollback(previous_id)
                 rollback_id = rolled.get("id")

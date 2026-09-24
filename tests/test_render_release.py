@@ -19,6 +19,7 @@ from ops.render_release import (
     RenderAPI,
     deploy_commit_sha,
     read_epm_pin,
+    release,
     verify_dependency_preflight,
     verify_rollback_health,
     verify_runtime_health,
@@ -137,6 +138,7 @@ def test_dependency_preflight_requires_repeatable_success():
     proof = verify_dependency_preflight(
         "https://fap-core.example/health",
         expected_sha,
+        "test-core-key",
         max_attempts=2,
         required_successes=2,
         interval_seconds=0,
@@ -159,6 +161,7 @@ def test_dependency_preflight_rejects_edge_429_before_deploy():
         verify_dependency_preflight(
             "https://fap-core.example/health",
             "d" * 40,
+            "test-core-key",
             max_attempts=3,
             required_successes=2,
             interval_seconds=0,
@@ -269,6 +272,7 @@ def test_dependency_preflight_rejects_wrong_runtime_identity(monkeypatch):
         verify_dependency_preflight(
             "https://fap-core.example/health",
             wanted,
+            "test-core-key",
             max_attempts=1,
             required_successes=1,
             interval_seconds=0,
@@ -308,3 +312,78 @@ def test_runtime_health_rejects_wrong_fap_core_sha(monkeypatch):
             client=client,
             sleep=lambda _: None,
         )
+
+
+def test_dependency_preflight_uses_authenticated_identity_endpoint():
+    expected_sha = "6" * 40
+    payload = {
+        "status": "healthy",
+        "service": EXPECTED_FAP_CORE_SERVICE,
+        "git_commit": expected_sha,
+        "git_repo_slug": EXPECTED_FAP_CORE_REPO,
+        "environment": EXPECTED_FAP_CORE_ENVIRONMENT,
+    }
+    client = FakeClient([FakeResponse(payload)])
+
+    verify_dependency_preflight(
+        "https://fap-core.example/auth/check",
+        expected_sha,
+        "secret-core-key",
+        max_attempts=1,
+        required_successes=1,
+        interval_seconds=0,
+        client=client,
+        sleep=lambda _: None,
+    )
+
+    method, url, kwargs = client.requests[0]
+    assert method == "GET"
+    assert url == "https://fap-core.example/auth/check"
+    assert kwargs["headers"]["Authorization"] == "Bearer secret-core-key"
+
+
+def test_failed_core_preflight_never_mutates_render(monkeypatch):
+    mutations = []
+
+    class API:
+        def __init__(self, token, service_id):
+            pass
+
+        def current_live_deploy(self):
+            return {"id": "dep-prior", "status": "live", "commit": {"id": "a" * 40}}
+
+        def get_service(self):
+            return {
+                "branch": EXPECTED_BRANCH,
+                "repo": "https://github.com/paslaycorp/FAP-Insurance",
+                "serviceDetails": {"healthCheckPath": "/health"},
+            }
+
+        def rollback(self, deploy_id):
+            mutations.append(("rollback", deploy_id))
+
+        def disable_autodeploy(self):
+            mutations.append(("disable_autodeploy",))
+
+        def trigger_deploy(self, sha):
+            mutations.append(("trigger_deploy", sha))
+
+        def set_health_check_path(self, path):
+            mutations.append(("set_health_check_path", path))
+
+    monkeypatch.setenv("RENDER_API_KEY", "test-render-key")
+    monkeypatch.setenv("RELEASE_SHA", "b" * 40)
+    monkeypatch.setenv("FAP_CORE_API_KEY", "test-core-key")
+    monkeypatch.setenv("EXPECTED_FAP_CORE_SHA", "c" * 40)
+    monkeypatch.setattr("ops.render_release.RenderAPI", API)
+    monkeypatch.setattr("ops.render_release.read_epm_pin", lambda: "d" * 40)
+    monkeypatch.setattr(
+        "ops.render_release.verify_dependency_preflight",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("Core identity mismatch")),
+    )
+    monkeypatch.setattr("ops.render_release.write_attestation", lambda *args: None)
+
+    with pytest.raises(RuntimeError, match="Core identity mismatch"):
+        release()
+
+    assert mutations == []

@@ -21,7 +21,8 @@ FAP-Insurance requires:
 2. `FAP_CORE_URL` pointing to the intended FAP-Core service;
 3. `FAP_CORE_API_KEY` configured in the FAP-Insurance runtime environment;
 4. `FAP_API_KEY` for FAP-Insurance ingress;
-5. the GitHub production environment `RENDER_API_KEY` for controlled releases.
+5. the GitHub production environment `RENDER_API_KEY` for controlled releases;
+6. the GitHub production environment `FAP_CORE_API_KEY` for authenticated pre-deploy Core identity proof.
 
 Never copy secret values into issues, pull requests, workflow logs, documentation, chat, or release evidence.
 
@@ -34,8 +35,9 @@ Before any production release:
 3. FAP-Insurance CI, Build, and Production Verification are green for the exact candidate.
 4. FAP-Core is already running a receipt-capable build compatible with the pinned EPM-FAP contract revision.
 5. The production runtime has `FAP_CORE_API_KEY` configured.
-6. The release workflow has access to `RENDER_API_KEY` through the protected production environment.
-7. No unresolved incident or authority-boundary exception exists.
+6. The release workflow has access to both `RENDER_API_KEY` and `FAP_CORE_API_KEY` through the protected production environment.
+7. The GitHub-side `FAP_CORE_API_KEY` corresponds to the same Core service credential configured for FAP-Insurance runtime use.
+8. No unresolved incident or authority-boundary exception exists.
 
 ## Release procedure
 

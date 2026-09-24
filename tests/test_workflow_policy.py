@@ -70,3 +70,11 @@ def test_release_permissions_are_least_privilege():
     assert "actions: read" in text
     assert "pull-requests: read" in text
     assert "deployments: write" not in text
+
+
+def test_release_requires_authenticated_fap_core_preflight_secret():
+    text = RELEASE.read_text(encoding="utf-8")
+
+    assert 'FAP_CORE_API_KEY: ${{ secrets.FAP_CORE_API_KEY }}' in text
+    assert 'FAP_CORE_IDENTITY_URL: https://fap-core-odm4.onrender.com/auth/check' in text
+    assert "for name in RENDER_API_KEY FAP_CORE_API_KEY" in text
