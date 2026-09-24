@@ -513,7 +513,7 @@ def release() -> ReleaseAttestation:
             except Exception as health_path_exc:  # noqa: BLE001
                 health_path_restore_error = str(health_path_exc)
 
-        if previous_id and previous_sha and previous_sha != release_sha:
+        if deploy_id and previous_id and previous_sha and previous_sha != release_sha:
             try:
                 rolled = api.rollback(previous_id)
                 rollback_id = rolled.get("id")
